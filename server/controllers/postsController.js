@@ -2,11 +2,33 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 class PostsController {
+
+    async getMyPosts(req, res) {
+        try {
+            const { userId } = req.user;
+            const posts = await prisma.post.findMany({
+                where: { authorId: userId },
+                select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    imageUrl: true,
+                    location: true,
+                    createdAt: true,
+                },
+            });
+            res.json(posts);
+        } catch (error) {
+            console.error('Error in getMyPosts:', error);
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+
     async createPost(req, res) {
         try {
             const { title, description, price, location, bedrooms, bathrooms, squareMeters } = req.body;
             const { userId } = req.user;
-            
+
             const post = await prisma.post.create({
                 data: {
                     title,
@@ -40,7 +62,7 @@ class PostsController {
     async getPostById(req, res) {
         try {
             const { id } = req.params
-        
+
             const post = await prisma.post.findUnique({
                 where: {
                     id: Number(id)
@@ -90,6 +112,8 @@ class PostsController {
             res.status(500).json({ message: 'Server error' });
         }
     }
+
+
 }
 
 module.exports = new PostsController();

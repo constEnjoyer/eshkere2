@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useEffect } from "react"
 import { useTheme } from "next-themes"
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet" // Добавляем SheetTitle
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { NewListingModal } from "./new-listing-modal"
@@ -31,7 +31,7 @@ export default function Header() {
   const [newListingOpen, setNewListingOpen] = useState(false)
   const { user, logout } = useAuth()
 
-  console.log(user)
+  console.log("User in Header:", user)
 
   useEffect(() => {
     setMounted(true)
@@ -44,13 +44,16 @@ export default function Header() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  const navItems = [
+  const allNavItems = [
     { name: "TRUSTED NETWORK PARTNER", href: "/", className: "font-bold hidden lg:block" },
-    { name: "PROFILE", href: "/profile" },
+    { name: "PROFILE", href: "/profile", protected: true },
     { name: "REAL ESTATE", href: "/real-estate" },
-    { name: "PARTNERS", href: "/partners" },
-    { name: "CHAT", href: "/chat", badge: 3 },
+    { name: "PARTNERS", href: "/partners", protected: true },
+    { name: "CHAT", href: "/chat", protected: true },
   ]
+
+  // Фильтруем элементы навигации: показываем защищённые только если user есть
+  const navItems = allNavItems.filter(item => !item.protected || user)
 
   const handleNewListing = () => {
     setNewListingOpen(true)
@@ -75,7 +78,7 @@ export default function Header() {
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-[240px] sm:w-[300px]">
-                <SheetTitle>Menu</SheetTitle> {/* Добавляем SheetTitle */}
+                <SheetTitle>Menu</SheetTitle>
                 <nav className="flex flex-col gap-4 mt-8">
                   {navItems.map((item) => (
                     <Link
@@ -89,11 +92,6 @@ export default function Header() {
                       )}
                     >
                       {item.name}
-                      {item.badge && (
-                        <Badge variant="default" className="ml-auto">
-                          {item.badge}
-                        </Badge>
-                      )}
                     </Link>
                   ))}
                 </nav>
@@ -117,11 +115,6 @@ export default function Header() {
                 )}
               >
                 {item.name}
-                {item.badge && (
-                  <span className="absolute top-1 right-0 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs font-medium text-white">
-                    {item.badge}
-                  </span>
-                )}
                 {pathname === item.href && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
                 )}
@@ -144,20 +137,74 @@ export default function Header() {
               <Search className="h-5 w-5" />
             </Button>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() =>
-                toast({
-                  title: "Notifications",
-                  description: "You have 3 unread notifications",
-                })
-              }
-            >
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary"></span>
-            </Button>
+            {user && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    toast({
+                      title: "Notifications",
+                      description: "You have 3 unread notifications",
+                    })
+                  }
+                >
+                  <Bell className="h-5 w-5" />
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary"></span>
+                </Button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="px-2 gap-2">
+                      EUR
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => toast({ title: "Currency changed to EUR" })}>
+                      EUR
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toast({ title: "Currency changed to USD" })}>
+                      USD
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => toast({ title: "Currency changed to GBP" })}>
+                      GBP
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  className="bg-primary text-white hover:bg-primary/90 hidden sm:flex"
+                  onClick={handleNewListing}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  New listing
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-foreground sm:hidden"
+                  onClick={handleNewListing}
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+              </>
+            )}
 
             <Button
               variant="ghost"
@@ -166,47 +213,6 @@ export default function Header() {
               className="text-muted-foreground hover:text-foreground"
             >
               {mounted && theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="px-2 gap-2">
-                  EUR
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4"
-                  >
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => toast({ title: "Currency changed to EUR" })}>EUR</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toast({ title: "Currency changed to USD" })}>USD</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toast({ title: "Currency changed to GBP" })}>GBP</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <Button className="bg-primary text-white hover:bg-primary/90 hidden sm:flex" onClick={handleNewListing}>
-              <Plus className="mr-2 h-4 w-4" />
-              New listing
-            </Button>
-
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground sm:hidden"
-              onClick={handleNewListing}
-            >
-              <Plus className="h-5 w-5" />
             </Button>
 
             <DropdownMenu>

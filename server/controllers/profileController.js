@@ -1,11 +1,13 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const path = require('path');
+const fs = require('fs').promises;
 
 class ProfileController {
-    // Получить профиль текущего пользователя
     async getMyProfile(req, res) {
         try {
             const { userId } = req.user;
+            console.log(`[GET /api/profile] Fetching profile for userId: ${userId}`);
 
             const user = await prisma.users.findUnique({
                 where: { id: userId },
@@ -15,89 +17,38 @@ class ProfileController {
                     email: true,
                     profilePicture: true,
                     bio: true,
-                    age: true,
-                    phone: true, // Добавляем phone
-                    location: true, // Добавляем location
-                    userFriendships: {
-                        where: { status: "accepted" }
-                    },
-                    friendFriendships: {
-                        where: { status: "accepted" }
-                    }
-                }
+                    phone: true,
+                    location: true,
+                    skills: true,
+                    userFriendships: { where: { status: "accepted" } },
+                    friendFriendships: { where: { status: "accepted" } },
+                    posts: { select: { id: true } }, // Используем posts как "Events"
+                },
             });
 
             if (!user) {
+                console.log(`[GET /api/profile] User not found for userId: ${userId}`);
                 return res.status(404).json({ message: 'User not found' });
             }
 
-            // Подсчитываем количество друзей
-            const friendsCount = user.userFriendships.length + user.friendFriendships.length;
-
-            // Формируем ответ
             const profile = {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                profilePicture: user.profilePicture || null,
+                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null, // Полный URL
                 bio: user.bio || null,
-                age: user.age || null,
-                phone: user.phone || null, // Возвращаем phone
-                location: user.location || null, // Возвращаем location
-                friendsCount,
-                friendsUrl: '/friends/list' // Ссылка на список друзей
+                phone: user.phone || null,
+                location: user.location || null,
+                skills: user.skills || [],
+                friendsCount: user.userFriendships.length + user.friendFriendships.length,
+                postsCount: user.posts.length,
+                eventsCount: user.posts.length, // Предполагаем, что events = posts
             };
 
+            console.log(`[GET /api/profile] Profile fetched:`, profile);
             res.json(profile);
         } catch (error) {
-            console.error('Error in getMyProfile:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
-    }
-
-    // Получить профиль другого пользователя по ID
-    async getProfileById(req, res) {
-        try {
-            const { userId } = req.params;
-
-            const user = await prisma.users.findUnique({
-                where: { id: parseInt(userId) },
-                select: {
-                    id: true,
-                    username: true,
-                    profilePicture: true,
-                    bio: true,
-                    age: true,
-                    userFriendships: {
-                        where: { status: "accepted" }
-                    },
-                    friendFriendships: {
-                        where: { status: "accepted" }
-                    }
-                }
-            });
-
-            if (!user) {
-                return res.status(404).json({ message: 'User not found' });
-            }
-
-            // Подсчитываем количество друзей
-            const friendsCount = user.userFriendships.length + user.friendFriendships.length;
-
-            // Формируем ответ
-            const profile = {
-                id: user.id,
-                username: user.username,
-                profilePicture: user.profilePicture || null,
-                bio: user.bio || null,
-                age: user.age || null,
-                friendsCount,
-                friendsUrl: '/friends/list' // Ссылка на список друзей
-            };
-
-            res.json(profile);
-        } catch (error) {
-            console.error('Error in getProfileById:', error);
+            console.error(`[GET /api/profile] Error:`, error);
             res.status(500).json({ message: 'Server error' });
         }
     }
@@ -105,38 +56,18 @@ class ProfileController {
     async updateProfile(req, res) {
         try {
             const { userId } = req.user;
-            const { username, profilePicture, bio, age, phone, location } = req.body;
+            const { username, email, bio, phone, location, skills } = req.body;
+            console.log(`[PUT /api/profile/update] Updating profile for userId: ${userId}`, req.body);
 
-            // Проверка валидности данных
-            if (username && typeof username !== 'string') {
-                return res.status(400).json({ message: 'Username must be a string' });
-            }
-            if (profilePicture && typeof profilePicture !== 'string') {
-                return res.status(400).json({ message: 'Profile picture must be a string (URL)' });
-            }
-            if (bio && typeof bio !== 'string') {
-                return res.status(400).json({ message: 'Bio must be a string' });
-            }
-            if (age && (isNaN(age) || age < 0 || age > 120)) {
-                return res.status(400).json({ message: 'Age must be a number between 0 and 120' });
-            }
-            if (phone && typeof phone !== 'string') {
-                return res.status(400).json({ message: 'Phone must be a string' });
-            }
-            if (location && typeof location !== 'string') {
-                return res.status(400).json({ message: 'Location must be a string' });
-            }
-
-            // Обновляем профиль
             const updatedUser = await prisma.users.update({
                 where: { id: userId },
                 data: {
                     username: username || undefined,
-                    profilePicture: profilePicture || undefined,
+                    email: email || undefined,
                     bio: bio || undefined,
-                    age: age ? parseInt(age) : undefined,
-                    phone: phone || undefined, // Добавляем обновление для phone
-                    location: location || undefined // Добавляем обновление для location
+                    phone: phone || undefined,
+                    location: location || undefined,
+                    skills: skills || undefined,
                 },
                 select: {
                     id: true,
@@ -144,40 +75,100 @@ class ProfileController {
                     email: true,
                     profilePicture: true,
                     bio: true,
-                    age: true,
-                    phone: true, // Включаем phone в выборку
-                    location: true, // Включаем location в выборку
-                    userFriendships: {
-                        where: { status: "accepted" }
-                    },
-                    friendFriendships: {
-                        where: { status: "accepted" }
-                    }
-                }
+                    phone: true,
+                    location: true,
+                    skills: true,
+                    userFriendships: { where: { status: "accepted" } },
+                    friendFriendships: { where: { status: "accepted" } },
+                    posts: { select: { id: true } },
+                },
             });
 
-            // Подсчитываем количество друзей
-            const friendsCount = updatedUser.userFriendships.length + updatedUser.friendFriendships.length;
-
-            // Формируем ответ
             const profile = {
                 id: updatedUser.id,
                 username: updatedUser.username,
                 email: updatedUser.email,
-                profilePicture: updatedUser.profilePicture || null,
+                profilePicture: updatedUser.profilePicture ?
+                    `http://localhost:5000${updatedUser.profilePicture}` : null,
                 bio: updatedUser.bio || null,
-                age: updatedUser.age || null,
-                phone: updatedUser.phone || null, // Возвращаем phone в ответе
-                location: updatedUser.location || null, // Возвращаем location в ответе
-                friendsCount,
-                friendsUrl: '/friends/list'
+                phone: updatedUser.phone || null,
+                location: updatedUser.location || null,
+                skills: updatedUser.skills || [],
+                friendsCount: updatedUser.userFriendships.length + updatedUser.friendFriendships.length,
+                postsCount: updatedUser.posts.length,
+                eventsCount: updatedUser.posts.length, // Предполагаем, что events = posts
             };
+
+            console.log(`[PUT /api/profile/update] Profile updated:`, profile);
             res.json(profile);
         } catch (error) {
-            console.error('Error in updateProfile:', error);
+            console.error(`[PUT /api/profile/update] Error:`, error);
             if (error.code === 'P2002') {
-                return res.status(400).json({ message: 'Username is already taken' });
+                return res.status(400).json({ message: 'Username or email already taken' });
             }
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+
+    async uploadPhoto(req, res) {
+        try {
+            const { userId } = req.user;
+            console.log(`[POST /api/profile/upload-photo] Uploading photo for userId: ${userId}`);
+
+            if (!req.files || !req.files.profilePicture) {
+                console.log(`[POST /api/profile/upload-photo] No file uploaded`);
+                return res.status(400).json({ message: 'No file uploaded' });
+            }
+
+            const file = req.files.profilePicture;
+            const uploadDir = path.join(__dirname, '..', 'uploads');
+            await fs.mkdir(uploadDir, { recursive: true });
+            const fileName = `${userId}-${Date.now()}${path.extname(file.name)}`;
+            const filePath = path.join(uploadDir, fileName);
+
+            console.log(`[POST /api/profile/upload-photo] Saving file to: ${filePath}`);
+            await file.mv(filePath);
+
+            const profilePictureUrl = `/uploads/${fileName}`;
+            console.log(`[POST /api/profile/upload-photo] Updating DB with URL: ${profilePictureUrl}`);
+
+            const updatedUser = await prisma.users.update({
+                where: { id: userId },
+                data: { profilePicture: profilePictureUrl },
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    profilePicture: true,
+                    bio: true,
+                    phone: true,
+                    location: true,
+                    skills: true,
+                    userFriendships: { where: { status: "accepted" } },
+                    friendFriendships: { where: { status: "accepted" } },
+                    posts: { select: { id: true } },
+                },
+            });
+
+            const profile = {
+                id: updatedUser.id,
+                username: updatedUser.username,
+                email: updatedUser.email,
+                profilePicture: updatedUser.profilePicture ?
+                    `http://localhost:5000${updatedUser.profilePicture}` : null,
+                bio: updatedUser.bio || null,
+                phone: updatedUser.phone || null,
+                location: updatedUser.location || null,
+                skills: updatedUser.skills || [],
+                friendsCount: updatedUser.userFriendships.length + updatedUser.friendFriendships.length,
+                postsCount: updatedUser.posts.length,
+                eventsCount: updatedUser.posts.length, // Предполагаем, что events = posts
+            };
+
+            console.log(`[POST /api/profile/upload-photo] Photo uploaded:`, profile);
+            res.json(profile);
+        } catch (error) {
+            console.error(`[POST /api/profile/upload-photo] Error:`, error);
             res.status(500).json({ message: 'Server error' });
         }
     }

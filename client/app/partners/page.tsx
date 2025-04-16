@@ -1,14 +1,13 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Search, MapPin, Plus, X, UserPlus, Building, Users } from "lucide-react"
-import { motion } from "framer-motion"
-import { useToast } from "@/components/ui/use-toast"
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Search, Trash2, Users, UserPlus, Check } from "lucide-react";
+import { motion } from "framer-motion";
+import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -16,141 +15,207 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAuth } from "@/context/auth-context"
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ProtectedRoute from "@/components/protected-route";
 
-export default function PartnersPage() {
-  const { toast } = useToast()
-  const { user } = useAuth()
-  const [partners, setPartners] = useState([
-    {
-      id: "1",
-      name: "Theresa Steward",
-      role: "Real estate agent",
-      avatar: "/placeholder.svg?height=64&width=64",
-    },
-    {
-      id: "2",
-      name: "Idealista",
-      role: "Real estate listing",
-      avatar: "/placeholder.svg?height=64&width=64",
-      bgColor: "bg-lime-200",
-    },
-    {
-      id: "3",
-      name: "Drumella Real Estate",
-      role: "Developer company",
-      avatar: "/placeholder.svg?height=64&width=64",
-      initial: "D",
-      bgColor: "bg-amber-100",
-    },
-    {
-      id: "4",
-      name: "Engel & Völkers España",
-      role: "Real estate manager",
-      avatar: "/placeholder.svg?height=64&width=64",
-    },
-    {
-      id: "5",
-      name: "Felice Tufano",
-      role: "Real estate manager",
-      avatar: "/placeholder.svg?height=64&width=64",
-    },
-    {
-      id: "6",
-      name: "Theresa Steward",
-      role: "Real estate company",
-      avatar: "/placeholder.svg?height=64&width=64",
-    },
-  ])
+type Friend = {
+  id: number;
+  username: string;
+  profilePicture?: string | null;
+};
 
-  const handleAddPartner = (partner: any) => {
-    // Check if user is logged in
-    if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "Please log in to add partners",
-        variant: "destructive",
-      })
-      return
-    }
+type User = {
+  id: number;
+  username: string;
+  profilePicture?: string | null;
+};
 
-    const newPartner = {
-      id: `new-${Date.now()}`,
-      name: partner.name,
-      role: partner.role || "Real estate agent",
-      avatar: partner.avatar || `/placeholder.svg?height=48&width=48&text=${partner.name.charAt(0)}`,
-      online: Math.random() > 0.5,
-    }
+type FriendRequest = {
+  id: number;
+  userId: number;
+  friendId: number;
+  requester: {
+    id: number;
+    username: string;
+    profilePicture?: string | null;
+  };
+};
 
-    // Save to localStorage
-    try {
-      const existingPartners = JSON.parse(localStorage.getItem("partners") || "[]")
-      const updatedPartners = [...existingPartners, newPartner]
-      localStorage.setItem("partners", JSON.stringify(updatedPartners))
-
-      // Update state
-      setPartners([...partners, newPartner])
-
-      toast({
-        title: "Partner added",
-        description: `${partner.name} has been added to your network`,
-      })
-    } catch (error) {
-      console.error("Error saving partner:", error)
-      toast({
-        title: "Error adding partner",
-        description: "There was a problem adding the partner. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const removePartner = (id: string) => {
-    // Check if user is logged in
-    if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "Please log in to remove partners",
-        variant: "destructive",
-      })
-      return
-    }
-
-    try {
-      // Update state
-      setPartners(partners.filter((partner) => partner.id !== id))
-
-      // Update localStorage
-      const existingPartners = JSON.parse(localStorage.getItem("partners") || "[]")
-      const updatedPartners = existingPartners.filter((partner: any) => partner.id !== id)
-      localStorage.setItem("partners", JSON.stringify(updatedPartners))
-
-      toast({
-        title: "Partner removed",
-        description: "The partner has been removed from your network",
-      })
-    } catch (error) {
-      console.error("Error removing partner:", error)
-      toast({
-        title: "Error removing partner",
-        description: "There was a problem removing the partner. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
+export default function FriendsPage() {
+  const { toast } = useToast();
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const savedPartners = JSON.parse(localStorage.getItem("partners") || "[]")
-      if (savedPartners.length > 0) {
-        setPartners(savedPartners)
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        console.log("[Frontend] Fetching friends and requests from /api/friends");
+        
+        // Fetch accepted friends
+        const friendsResponse = await fetch("http://localhost:5000/api/friends", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!friendsResponse.ok) {
+          const errorData = await friendsResponse.json();
+          throw new Error(errorData.message || "Failed to fetch friends");
+        }
+        const friendsData: Friend[] = await friendsResponse.json();
+        setFriends(friendsData);
+
+        // Fetch pending friend requests
+        const requestsResponse = await fetch("http://localhost:5000/api/friends/requests", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!requestsResponse.ok) {
+          const errorData = await requestsResponse.json();
+          throw new Error(errorData.message || "Failed to fetch friend requests");
+        }
+        const requestsData: FriendRequest[] = await requestsResponse.json();
+        setFriendRequests(requestsData);
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to load data",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
       }
+    };
+    fetchData();
+  }, []);
+
+  const handleRemoveFriend = async (friendId: number) => {
+    try {
+      console.log(`[Frontend] Removing friend with ID: ${friendId}`);
+      const response = await fetch(`http://localhost:5000/api/friends/${friendId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to remove friend");
+      }
+
+      setFriends(friends.filter((friend) => friend.id !== friendId));
+      toast({
+        title: "Success",
+        description: "Friend removed successfully",
+      });
     } catch (error) {
-      console.error("Error loading partners from localStorage:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to remove friend",
+        variant: "destructive",
+      });
     }
-  }, [])
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a search query",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      console.log(`[Frontend] Searching users with query: ${searchQuery}`);
+      const response = await fetch(
+        `http://localhost:5000/api/friends/search?query=${encodeURIComponent(searchQuery)}`,
+        {
+          method: "GET",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to search users");
+      }
+
+      const data: User[] = await response.json();
+      setSearchResults(data);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to search users",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddFriend = async (userId: number) => {
+    try {
+      console.log(`[Frontend] Sending friend request to userId: ${userId}`);
+      const response = await fetch("http://localhost:5000/api/friends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ friendId: userId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to send friend request");
+      }
+
+      toast({
+        title: "Success",
+        description: "Friend request sent successfully",
+      });
+      setSearchResults(searchResults.filter((user) => user.id !== userId));
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send friend request",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAcceptFriend = async (requestId: number, requesterId: number) => {
+    try {
+      console.log(`[Frontend] Accepting friend request with ID: ${requestId}`);
+      const response = await fetch(`http://localhost:5000/api/friends/${requestId}/accept`, {
+        method: "PUT",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to accept friend request");
+      }
+
+      const updatedFriendship = await response.json();
+      setFriendRequests(friendRequests.filter((req) => req.id !== requestId));
+      setFriends([...friends, {
+        id: requesterId,
+        username: updatedFriendship.requester.username,
+        profilePicture: updatedFriendship.requester.profilePicture,
+      }]);
+      toast({
+        title: "Success",
+        description: "Friend request accepted",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to accept friend request",
+        variant: "destructive",
+      });
+    }
+  };
 
   const container = {
     hidden: { opacity: 0 },
@@ -160,334 +225,234 @@ export default function PartnersPage() {
         staggerChildren: 0.1,
       },
     },
-  }
+  };
 
   const item = {
     hidden: { opacity: 0, y: 20 },
     show: { opacity: 1, y: 0 },
-  }
+  };
+
+  if (loading) return <div className="container px-4 py-8">Loading...</div>;
 
   return (
+    <ProtectedRoute>
     <div className="container px-4 py-8 md:px-6 md:py-12">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
-        {/* Left Sidebar */}
-        <div className="space-y-8">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5 }}
-            className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
-          >
-            <div className="flex flex-col items-center text-center">
-              <Avatar className="h-24 w-24 border-2 border-primary/20">
-                <AvatarImage src="/placeholder.svg?height=96&width=96" alt="Ruben Bothman" />
-                <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">RB</AvatarFallback>
-              </Avatar>
-              <div className="mt-4">
-                <h2 className="text-xl font-bold">Ruben Bothman</h2>
-                <p className="text-sm text-muted-foreground">Real estate agent</p>
-                <div className="mt-2 flex items-center justify-center">
-                  <Badge variant="outline" className="bg-primary/5">
-                    Premium Partner
-                  </Badge>
-                </div>
-              </div>
-            </div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mb-6"
+      >
+        <h1 className="text-2xl font-bold">FRIENDS</h1>
+        <p className="mt-2 text-muted-foreground">Manage your network of friends</p>
+      </motion.div>
 
-            <div className="mt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <span>Events</span>
-                <Badge variant="outline" className="bg-primary/5">
-                  456
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Properties</span>
-                <Badge variant="outline" className="bg-primary/5">
-                  602
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Followers</span>
-                <Badge variant="outline" className="bg-primary/5">
-                  290
-                </Badge>
-              </div>
-            </div>
+      <Tabs defaultValue="friends" className="mb-8">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="friends">Friends</TabsTrigger>
+          <TabsTrigger value="requests">Friend Requests</TabsTrigger>
+        </TabsList>
 
-            <div className="mt-6">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button className="w-full bg-primary hover:bg-primary/90">
-                    <UserPlus className="mr-2 h-4 w-4" />
-                    Add new partner
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add new partner</DialogTitle>
-                    <DialogDescription>Search for partners or invite them to join your network.</DialogDescription>
-                  </DialogHeader>
-
-                  <Tabs defaultValue="search">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="search">Search</TabsTrigger>
-                      <TabsTrigger value="invite">Invite</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="search" className="mt-4 space-y-4">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input type="text" placeholder="Search by name or company" className="pl-10" />
-                      </div>
-
-                      <div className="space-y-2">
-                        {[1, 2, 3].map((i) => (
-                          <div key={i} className="flex items-center justify-between rounded-lg border p-3">
-                            <div className="flex items-center gap-3">
-                              <Avatar>
-                                <AvatarImage src={`/placeholder.svg?height=40&width=40&text=User${i}`} />
-                                <AvatarFallback>U{i}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <h4 className="font-medium">Partner Name {i}</h4>
-                                <p className="text-xs text-muted-foreground">Real estate agent</p>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                handleAddPartner({
-                                  name: `Partner Name ${i}`,
-                                  role: "Real estate agent",
-                                  avatar: `/placeholder.svg?height=48&width=48&text=User${i}`,
-                                })
-                              }
-                            >
-                              Add
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="invite" className="mt-4 space-y-4">
-                      <div className="space-y-2">
-                        <Input type="email" placeholder="Email address" />
-                        <Input type="text" placeholder="Name (optional)" />
-                        <Input type="text" placeholder="Company (optional)" />
-                      </div>
-
-                      <Button
-                        className="w-full"
-                        onClick={() => {
-                          const emailInput = document.querySelector('input[type="email"]') as HTMLInputElement
-                          const nameInput = document.querySelector(
-                            'input[placeholder="Name (optional)"]',
-                          ) as HTMLInputElement
-                          const companyInput = document.querySelector(
-                            'input[placeholder="Company (optional)"]',
-                          ) as HTMLInputElement
-
-                          if (emailInput && emailInput.value) {
-                            handleAddPartner({
-                              name: nameInput?.value || emailInput.value.split("@")[0],
-                              role: companyInput?.value ? `${companyInput.value} employee` : "Invited partner",
-                              avatar: `/placeholder.svg?height=48&width=48&text=${(nameInput?.value || emailInput.value)[0]}`,
-                            })
-
-                            // Clear inputs
-                            emailInput.value = ""
-                            if (nameInput) nameInput.value = ""
-                            if (companyInput) companyInput.value = ""
-
-                            toast({
-                              title: "Invitation sent",
-                              description: "An invitation has been sent to the email address",
-                            })
-                          } else {
-                            toast({
-                              title: "Missing email",
-                              description: "Please enter an email address",
-                              variant: "destructive",
-                            })
-                          }
-                        }}
-                      >
-                        Send invitation
-                      </Button>
-                    </TabsContent>
-                  </Tabs>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
-          >
-            <h3 className="font-medium mb-4">Quick Links</h3>
-            <nav className="space-y-1">
-              <Link
-                href="#"
-                className="flex items-center gap-2 rounded-md p-2 text-muted-foreground hover:bg-primary/5 hover:text-primary transition-colors"
-                onClick={() => {
-                  toast({
-                    title: "My Network",
-                    description: "Navigating to My Network section",
-                  })
-                }}
-              >
-                <Users className="h-5 w-5" />
-                My Network
-              </Link>
-              <Link
-                href="#"
-                className="flex items-center gap-2 rounded-md p-2 text-muted-foreground hover:bg-primary/5 hover:text-primary transition-colors"
-                onClick={() => {
-                  toast({
-                    title: "Companies",
-                    description: "Navigating to Companies section",
-                  })
-                }}
-              >
-                <Building className="h-5 w-5" />
-                Companies
-              </Link>
-              <Link
-                href="#"
-                className="flex items-center gap-2 rounded-md p-2 text-muted-foreground hover:bg-primary/5 hover:text-primary transition-colors"
-                onClick={() => {
-                  toast({
-                    title: "Invitations",
-                    description: "Navigating to Invitations section",
-                  })
-                }}
-              >
-                <UserPlus className="h-5 w-5" />
-                Invitations
-              </Link>
-            </nav>
-          </motion.div>
-        </div>
-
-        {/* Main Content */}
-        <div className="lg:col-span-3">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-6"
-          >
-            <h1 className="text-2xl font-bold">PARTNERS</h1>
-            <p className="mt-2 text-muted-foreground">Manage your network of partners and collaborators</p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="mb-8 rounded-xl border bg-white p-6 shadow-sm dark:bg-gray-900"
-          >
-            <h2 className="mb-4 text-lg font-semibold text-primary">SEARCH</h2>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input type="text" placeholder="Name Surname, company" className="pl-10" />
-              </div>
-
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input type="text" placeholder="Country" className="pl-10" />
-              </div>
-
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input type="text" placeholder="City" className="pl-10" />
-              </div>
-            </div>
-
-            <Button className="mt-4 bg-primary text-white hover:bg-primary/90">
-              <Search className="mr-2 h-4 w-4" />
-              Search
-            </Button>
-          </motion.div>
-
+        <TabsContent value="friends">
           <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
-            {partners.map((partner) => (
-              <motion.div key={partner.id} variants={item}>
-                <div className="flex items-center justify-between rounded-xl border bg-white p-4 transition-all hover:border-primary/50 hover:shadow-md dark:bg-gray-900">
-                  <div className="flex items-center gap-4">
-                    <Avatar className={`h-16 w-16 ${partner.bgColor || ""}`}>
-                      {partner.initial ? (
-                        <AvatarFallback className="text-xl">{partner.initial}</AvatarFallback>
-                      ) : (
-                        <>
-                          <AvatarImage src={partner.avatar} alt={partner.name} />
-                          <AvatarFallback>
-                            {partner.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </>
-                      )}
-                    </Avatar>
-                    <div>
-                      <h3 className="font-bold">{partner.name}</h3>
-                      <p className="text-sm text-muted-foreground">{partner.role}</p>
+            {friends.length > 0 ? (
+              friends.map((friend) => (
+                <motion.div key={friend.id} variants={item}>
+                  <div className="flex items-center justify-between rounded-xl border bg-white p-4 transition-all hover:border-primary/50 hover:shadow-md dark:bg-gray-900">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-16 w-16">
+                        <AvatarImage
+                          src={friend.profilePicture || "/placeholder.svg?height=64&width=64"}
+                          alt={friend.username}
+                        />
+                        <AvatarFallback>{friend.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="font-bold">{friend.username}</h3>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link href={`/profile/${friend.id}`}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="hover:bg-primary/5 hover:border-primary/50"
+                        >
+                          View Profile
+                        </Button>
+                      </Link>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
+                        onClick={() => handleRemoveFriend(friend.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                </motion.div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">No friends yet.</p>
+            )}
+          </motion.div>
+        </TabsContent>
+
+        <TabsContent value="requests">
+          <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
+            {friendRequests.length > 0 ? (
+              friendRequests.map((request) => (
+                <motion.div key={request.id} variants={item}>
+                  <div className="flex items-center justify-between rounded-xl border bg-white p-4 transition-all hover:border-primary/50 hover:shadow-md dark:bg-gray-900">
+                    <div className="flex items-center gap-4">
+                      <Avatar className="h-16 w-16">
+                        <AvatarImage
+                          src={request.requester.profilePicture || "/placeholder.svg?height=64&width=64"}
+                          alt={request.requester.username}
+                        />
+                        <AvatarFallback>{request.requester.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <h3 className="font-bold">{request.requester.username}</h3>
+                        <p className="text-sm text-muted-foreground">Friend request</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="hover:bg-green-500/10 hover:text-green-500 hover:border-green-500"
+                        onClick={() => handleAcceptFriend(request.id, request.requester.id)}
+                      >
+                        <Check className="mr-2 h-4 w-4" />
+                        Accept
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))
+            ) : (
+              <p className="text-muted-foreground">No pending friend requests.</p>
+            )}
+          </motion.div>
+        </TabsContent>
+      </Tabs>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="mb-8 rounded-xl border bg-white p-6 shadow-sm dark:bg-gray-900"
+      >
+        <h2 className="mb-4 text-lg font-semibold text-primary">SEARCH FRIENDS</h2>
+        <div className="flex gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search by username"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Button onClick={handleSearch} className="bg-primary hover:bg-primary/90">
+            <Search className="mr-2 h-4 w-4" />
+            Search
+          </Button>
+        </div>
+
+        {searchResults.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {searchResults.map((user) => (
+              <div
+                key={user.id}
+                className="flex items-center justify-between p-2 border rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage
+                      src={user.profilePicture || "/placeholder.svg?height=40&width=40"}
+                      alt={user.username}
+                    />
+                    <AvatarFallback>{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <span>{user.username}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAddFriend(user.id)}
+                >
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Friend
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button className="mt-6 w-full bg-primary hover:bg-primary/90">
+            <UserPlus className="mr-2 h-4 w-4" />
+            Add New Friend
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add New Friend</DialogTitle>
+            <DialogDescription>Search for users to add them as friends.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search by username"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Button onClick={handleSearch} className="bg-primary hover:bg-primary/90">
+              Search
+            </Button>
+            {searchResults.length > 0 && (
+              <div className="space-y-2">
+                {searchResults.map((user) => (
+                  <div
+                    key={user.id}
+                    className="flex items-center justify-between p-2 border rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage
+                          src={user.profilePicture || "/placeholder.svg?height=40&width=40"}
+                          alt={user.username}
+                        />
+                        <AvatarFallback>{user.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <span>{user.username}</span>
+                    </div>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="hover:bg-primary/5 hover:border-primary/50"
-                      onClick={() =>
-                        toast({
-                          title: "Contact details",
-                          description: "Contact details will be displayed shortly",
-                        })
-                      }
+                      onClick={() => handleAddFriend(user.id)}
                     >
-                      View details
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
-                      onClick={() => removePartner(partner.id)}
-                    >
-                      <X className="h-4 w-4" />
-                      <span className="ml-1 hidden sm:inline">REMOVE</span>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Add
                     </Button>
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          <div className="mt-8 flex justify-center">
-            <Button
-              variant="outline"
-              className="gap-1"
-              onClick={() =>
-                toast({
-                  title: "Loading more partners",
-                  description: "Additional partners are being loaded",
-                })
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Load more partners
-            </Button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
+    </ProtectedRoute>
+  );
 }

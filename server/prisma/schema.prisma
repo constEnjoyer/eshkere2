@@ -29,30 +29,30 @@ model users {
   password       String       @db.VarChar(255)
   user_roles     user_roles[]
   isActive       Boolean      @default(false)
-  profilePicture String?      @db.VarChar(255) // Ссылка на фото профиля (опционально)
-  bio            String?      @db.VarChar(255) // Описание профиля (опционально)
-  phone          String?      @db.VarChar(255) // Номер телефона (опционально)
-  location       String?      @db.VarChar(255) // Местоположение (опционально)
-  age            Int? // Возраст (опционально)
+  profilePicture String?      @db.VarChar(255) // URL фото профиля
+  bio            String?      @db.VarChar(255) // Биография
+  phone          String?      @db.VarChar(255) // Телефон
+  location       String?      @db.VarChar(255) // Местоположение
+  age            Int?         // Возраст (опционально)
+  skills         String[]     @default([])     // Навыки пользователя
 
-  messages messages[] @relation("receivedMessages")
-
-  sentMessages        messages[]           @relation("sentMessages")
+  messages       Message[]   @relation("receivedMessages")
+  sentMessages   Message[]   @relation("sentMessages")
   passwordResetTokens PasswordResetToken[]
-
-  userFriendships   Friendship[] @relation("userFriendships")
+  userFriendships Friendship[] @relation("userFriendships")
   friendFriendships Friendship[] @relation("friendFriendships")
-  posts             Post[]       @relation("UserPosts")
+  posts          Post[]       @relation("UserPosts")
+  experiences    Experience[] // Опыт работы
 }
 
-model messages {
-  id          Int      @id @default(autoincrement())
-  senderId    Int
-  recipientId Int
-  content     String
-  createdAt   DateTime @default(now())
-  sender      users    @relation("sentMessages", fields: [senderId], references: [id])
-  recipient   users    @relation("receivedMessages", fields: [recipientId], references: [id])
+model Message {
+  id        Int      @id @default(autoincrement())
+  senderId  Int
+  receiverId Int
+  content   String
+  createdAt DateTime @default(now())
+  sender    users    @relation("sentMessages", fields: [senderId], references: [id])
+  receiver  users    @relation("receivedMessages", fields: [receiverId], references: [id])
 }
 
 model PasswordResetToken {
@@ -65,31 +65,42 @@ model PasswordResetToken {
 
 model Friendship {
   id        Int      @id @default(autoincrement())
-  userId    Int // ID пользователя
-  friendId  Int // ID друга
+  userId    Int      // ID пользователя
+  friendId  Int      // ID друга
   status    String   @default("pending") // pending/accepted/rejected
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Связи
-  user   users @relation("userFriendships", fields: [userId], references: [id])
-  friend users @relation("friendFriendships", fields: [friendId], references: [id])
+  user      users    @relation("userFriendships", fields: [userId], references: [id])
+  friend    users    @relation("friendFriendships", fields: [friendId], references: [id])
 
   @@unique([userId, friendId]) // Уникальная пара пользователь-друг
 }
 
 model Post {
   id           Int      @id @default(autoincrement())
-  title        String // Название публикации (например, "Продаётся уютный дом")
-  description  String // Описание публикации
-  imageUrl     String? // Ссылка на фото (опционально)
-  bedrooms     Int? // Количество спален
-  bathrooms    Int? // Количество туалетов
-  squareMeters Float? // Площадь в квадратных метрах
-  price        Float // Цена
-  location     String // Местоположение (например, "Москва, ул. Ленина")
-  authorId     Int // ID автора поста
+  title        String   // Название поста
+  description  String   // Описание
+  imageUrl     String?  // URL изображения (опционально)
+  bedrooms     Int?     // Количество спален
+  bathrooms    Int?     // Количество ванных
+  squareMeters Float?   // Площадь в кв.м
+  price        Float    // Цена
+  location     String   // Местоположение
+  authorId     Int      // ID автора
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   author       users    @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model Experience {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  position    String   // Должность
+  company     String   // Компания
+  location    String   // Местоположение
+  startDate   String   // Дата начала
+  endDate     String   // Дата окончания
+  description String   // Описание
+  user        users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

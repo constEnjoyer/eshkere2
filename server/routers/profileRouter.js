@@ -1,12 +1,70 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../controllers/profileController');
 const authMiddleware = require('../middleware/authMiddleware');
+const profileController = require('../controllers/profileController');
+const fileUpload = require('express-fileupload');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
-router.use(authMiddleware); // Только для авторизованных пользователей
+router.use(authMiddleware);
 
-router.get('/', controller.getMyProfile); // Получить профиль текущего пользователя
-router.get('/:userId', controller.getProfileById); // Получить профиль другого пользователя
-router.put('/update', controller.updateProfile); // Обновить профиль текущего пользователя
+// Получение профиля текущего пользователя
+router.get('/', profileController.getMyProfile);
+
+// Обновление профиля текущего пользователя
+router.put('/update', profileController.updateProfile);
+
+// Загрузка фото профиля текущего пользователя
+router.post('/upload-photo', fileUpload(), profileController.uploadPhoto);
+
+// Новый эндпоинт: получение профиля другого пользователя по ID
+router.get('/:userId', async(req, res) => {
+    try {
+        const { userId } = req.params;
+        console.log(`[GET /api/profile/${userId}] Fetching profile for userId: ${userId}`);
+
+        const user = await prisma.users.findUnique({
+            where: { id: parseInt(userId) },
+            select: {
+                id: true,
+                username: true,
+                email: true,
+                profilePicture: true,
+                bio: true,
+                phone: true,
+                location: true,
+                skills: true,
+                userFriendships: { where: { status: "accepted" } },
+                friendFriendships: { where: { status: "accepted" } },
+                posts: { select: { id: true } },
+            },
+        });
+
+        if (!user) {
+            console.log(`[GET /api/profile/${userId}] User not found`);
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const profile = {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
+            bio: user.bio || null,
+            phone: user.phone || null,
+            location: user.location || null,
+            skills: user.skills || [],
+            friendsCount: user.userFriendships.length + user.friendFriendships.length,
+            postsCount: user.posts.length,
+            eventsCount: user.posts.length, // Предполагаем, что events = posts
+        };
+
+        console.log(`[GET /api/profile/${userId}] Profile fetched:`, profile);
+        res.json(profile);
+    } catch (error) {
+        console.error(`[GET /api/profile/${userId}] Error:`, error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
 
 module.exports = router;

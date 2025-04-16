@@ -22,7 +22,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import ProtectedRoute from "@/components/protected-route";
 
 type Profile = {
   id: number;
@@ -132,12 +131,16 @@ export default function ProfilePage() {
 
   const fetchFriends = async () => {
     try {
+      console.log(userId)
       console.log(`[Frontend] Fetching friends from /api/friends${userId ? `/${userId}` : ''}`);
       const url = userId
         ? `http://localhost:5000/api/friends/${userId}`
         : "http://localhost:5000/api/friends";
       const response = await fetch(url, {
         method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
         credentials: "include",
       });
 
@@ -322,7 +325,6 @@ export default function ProfilePage() {
   if (loading) return <div className="container px-4 py-8">Loading...</div>;
 
   return (
-    <ProtectedRoute>
     <div className="container px-4 py-8 md:px-6 md:py-12">
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
         <div className="space-y-8">
@@ -417,8 +419,8 @@ export default function ProfilePage() {
                 <div className="space-y-6">
                   <div>
                     <h2 className="text-lg font-semibold text-primary">ABOUT</h2>
-                    <div className="mt-4 rounded-lg border p-4 bg-muted/30">
-                      <p className="text-muted-foreground">{profile?.bio || "No bio provided"}</p>
+                    <div className="mt-4 rounded-lg border p-4 bg-muted/30 w-full max-w-[600px]">
+                      <p className="text-muted-foreground ">{profile?.bio || "No bio provided"}</p>
                     </div>
                   </div>
 
@@ -698,7 +700,6 @@ export default function ProfilePage() {
         </DialogContent>
       </Dialog>
     </div>
-    </ProtectedRoute>
   );
 }
 
@@ -719,6 +720,5 @@ function Home(props: any) {
       <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
       <polyline points="9 22 9 12 15 12 15 22" />
     </svg>
-    
   );
 }

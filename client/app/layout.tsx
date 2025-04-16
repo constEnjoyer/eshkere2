@@ -31,9 +31,9 @@ export default function RootLayout({
       >
         <AuthProvider>
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-            <Header />
-            <main className="min-h-[calc(100vh-4rem)]">{children}</main>
-            <Toaster />
+              <Header />
+              <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+              <Toaster />
           </ThemeProvider>
         </AuthProvider>
       </body>
@@ -43,3 +43,4 @@ export default function RootLayout({
 
 
 import './globals.css'
+import ProtectedRoute from "@/components/protected-route"
