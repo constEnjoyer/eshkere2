@@ -4,6 +4,7 @@ import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 
 export type User = {
+  token: any
   id: string
   username: string
   email: string

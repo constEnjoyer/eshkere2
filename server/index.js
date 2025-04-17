@@ -11,6 +11,7 @@ const friendsRouter = require('./routers/friendsRouter');
 const profileRouter = require('./routers/profileRouter');
 const postsRouter = require('./routers/postsRouter');
 const messagesRouter = require('./routers/messagesRouter');
+const usersRouter = require('./routers/UsersRouter');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
@@ -24,8 +25,6 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, '..', 'client')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // Для доступа к загруженным фото
 
 // Routes
 app.use('/api/auth', authRouter);
@@ -33,18 +32,29 @@ app.use('/api/friends', friendsRouter);
 app.use('/api/profile', profileRouter);
 app.use('/api/posts', postsRouter);
 app.use('/api/messages', messagesRouter);
+app.use('/api/users', usersRouter);
 
-// Создание HTTP-сервера
+// Static files
+app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use(express.static(path.join(__dirname, '..', 'client')));
+
+// Handle 404 for API routes
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ message: 'API route not found' });
+});
+
+// Create HTTP server
 const server = http.createServer(app);
 
-// Инициализация Socket.IO
+// Initialize Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: '*',
+        origin: 'http://localhost:3000',
+        credentials: true,
     },
 });
 
-// Инициализация ролей и Socket.IO
+// Initialize roles and Socket.IO
 const start = async() => {
     try {
         await initializeRoles();

@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 router.use(authMiddleware);
 
-// Получение сообщений между текущим пользователем и другом
+// Получение сообщений
 router.get('/', async(req, res) => {
     try {
         const { userId } = req.user;
@@ -50,25 +50,19 @@ router.post('/', async(req, res) => {
             return res.status(400).json({ message: 'Friend ID and content are required' });
         }
 
-        // Проверка дружбы
-        const friendship = await prisma.friendship.findFirst({
-            where: {
-                OR: [
-                    { userId: userId, friendId: friendId, status: 'accepted' },
-                    { userId: friendId, friendId: userId, status: 'accepted' },
-                ],
-            },
+        const recipient = await prisma.user.findUnique({
+            where: { id: parseInt(friendId) },
         });
 
-        if (!friendship) {
-            console.log(`[POST /api/messages] No accepted friendship found for userId: ${userId}, friendId: ${friendId}`);
-            return res.status(403).json({ message: 'You can only message your friends' });
+        if (!recipient) {
+            console.log(`[POST /api/messages] Recipient not found for friendId: ${friendId}`);
+            return res.status(404).json({ message: 'Recipient not found' });
         }
 
         const message = await prisma.message.create({
             data: {
                 senderId: userId,
-                receiverId: friendId,
+                receiverId: parseInt(friendId),
                 content,
             },
         });

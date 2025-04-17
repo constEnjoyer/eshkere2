@@ -1,10 +1,9 @@
 const jwt = require('jsonwebtoken');
-const prisma = require('../prisma/client');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
-// Хранилище подключённых клиентов (Map: userId -> socket)
 const clients = new Map();
 
-// Проверка JWT-токена
 const verifyToken = (token) => {
     try {
         return jwt.verify(token, process.env.SECRET_KEY);
@@ -15,64 +14,74 @@ const verifyToken = (token) => {
 };
 
 const setupSocket = (io) => {
-    // Middleware для проверки токена
     io.use((socket, next) => {
-        const token = socket.handshake.query.token;
-        console.log('Token received:', token);
+        const cookieHeader = socket.handshake.headers.cookie;
+        if (!cookieHeader) {
+            console.log('No cookies provided');
+            return next(new Error('Unauthorized: No cookies'));
+        }
+
+        const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+            const [name, value] = cookie.trim().split('=');
+            acc[name] = value;
+            return acc;
+        }, {});
+
+        const token = cookies.jwt;
+        if (!token) {
+            console.log('No JWT token in cookies');
+            return next(new Error('Unauthorized: No token'));
+        }
 
         const decoded = verifyToken(token);
         if (!decoded) {
-            return next(new Error('Unauthorized'));
+            return next(new Error('Unauthorized: Invalid token'));
         }
 
-        socket.userId = decoded.id; // Сохраняем userId в объекте socket
+        socket.userId = parseInt(decoded.id);
         next();
     });
 
-    // Обработка подключений
     io.on('connection', (socket) => {
         console.log(`User ${socket.userId} connected`);
         clients.set(socket.userId, socket);
 
-        // Обработка входящих сообщений
         socket.on('message', async(data) => {
             try {
                 const { recipientId, content } = data;
 
-                // Сохраняем сообщение в базе данных
-                const newMessage = await prisma.messages.create({
+                const newMessage = await prisma.message.create({
                     data: {
                         senderId: socket.userId,
-                        recipientId: parseInt(recipientId),
+                        receiverId: parseInt(recipientId),
                         content,
                     },
                 });
 
-                // Отправляем сообщение получателю
                 const recipientSocket = clients.get(parseInt(recipientId));
                 if (recipientSocket) {
                     recipientSocket.emit('message', {
+                        id: newMessage.id,
                         senderId: socket.userId,
+                        receiverId: parseInt(recipientId),
                         content,
-                        timestamp: newMessage.createdAt,
+                        createdAt: newMessage.createdAt,
                     });
-                } else {
-                    console.log(`Recipient ${recipientId} not connected`);
                 }
 
-                // Подтверждение отправителю
-                socket.emit('messageSent', {
-                    message: 'Message sent',
+                socket.emit('message', {
+                    id: newMessage.id,
+                    senderId: socket.userId,
+                    receiverId: parseInt(recipientId),
                     content,
-                    recipientId,
+                    createdAt: newMessage.createdAt,
                 });
             } catch (error) {
-                console.log('Error handling message:', error);
+                console.error('Error handling message:', error);
                 socket.emit('error', { error: 'Failed to send message' });
             }
         });
 
-        // Обработка отключения
         socket.on('disconnect', () => {
             clients.delete(socket.userId);
             console.log(`User ${socket.userId} disconnected`);
@@ -80,4 +89,4 @@ const setupSocket = (io) => {
     });
 };
 
-module.exports = setupSocket;   
+module.exports = setupSocket;

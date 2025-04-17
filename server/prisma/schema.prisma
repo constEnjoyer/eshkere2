@@ -29,30 +29,30 @@ model users {
   password       String       @db.VarChar(255)
   user_roles     user_roles[]
   isActive       Boolean      @default(false)
-  profilePicture String?      @db.VarChar(255) // URL фото профиля
-  bio            String?      @db.VarChar(255) // Биография
-  phone          String?      @db.VarChar(255) // Телефон
-  location       String?      @db.VarChar(255) // Местоположение
-  age            Int?         // Возраст (опционально)
-  skills         String[]     @default([])     // Навыки пользователя
-
-  messages       Message[]   @relation("receivedMessages")
-  sentMessages   Message[]   @relation("sentMessages")
+  profilePicture String?      @db.VarChar(255)
+  bio            String?      @db.VarChar(255)
+  phone          String?      @db.VarChar(255)
+  location       String?      @db.VarChar(255)
+  age            Int?
+  skills         String[]     @default([])
+  messages       Message[]    @relation("receivedMessages")
+  sentMessages   Message[]    @relation("sentMessages")
   passwordResetTokens PasswordResetToken[]
   userFriendships Friendship[] @relation("userFriendships")
   friendFriendships Friendship[] @relation("friendFriendships")
   posts          Post[]       @relation("UserPosts")
-  experiences    Experience[] // Опыт работы
+  experiences    Experience[]
+  likes          Like[]
 }
 
 model Message {
-  id        Int      @id @default(autoincrement())
-  senderId  Int
+  id         Int      @id @default(autoincrement())
+  senderId   Int
   receiverId Int
-  content   String
-  createdAt DateTime @default(now())
-  sender    users    @relation("sentMessages", fields: [senderId], references: [id])
-  receiver  users    @relation("receivedMessages", fields: [receiverId], references: [id])
+  content    String
+  createdAt  DateTime @default(now())
+  sender     users    @relation("sentMessages", fields: [senderId], references: [id])
+  receiver   users    @relation("receivedMessages", fields: [receiverId], references: [id])
 }
 
 model PasswordResetToken {
@@ -65,42 +65,53 @@ model PasswordResetToken {
 
 model Friendship {
   id        Int      @id @default(autoincrement())
-  userId    Int      // ID пользователя
-  friendId  Int      // ID друга
-  status    String   @default("pending") // pending/accepted/rejected
+  userId    Int
+  friendId  Int
+  status    String   @default("pending")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   user      users    @relation("userFriendships", fields: [userId], references: [id])
   friend    users    @relation("friendFriendships", fields: [friendId], references: [id])
 
-  @@unique([userId, friendId]) // Уникальная пара пользователь-друг
+  @@unique([userId, friendId])
 }
 
 model Post {
   id           Int      @id @default(autoincrement())
-  title        String   // Название поста
-  description  String   // Описание
-  imageUrl     String?  // URL изображения (опционально)
-  bedrooms     Int?     // Количество спален
-  bathrooms    Int?     // Количество ванных
-  squareMeters Float?   // Площадь в кв.м
-  price        Float    // Цена
-  location     String   // Местоположение
-  authorId     Int      // ID автора
+  title        String
+  description  String
+  imageUrl     String?
+  bedrooms     Int?
+  bathrooms    Int?
+  squareMeters Int?
+  price        Float
+  location     String
+  authorId     Int
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   author       users    @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  likes        Like[]
+}
+
+model Like {
+  id        Int      @id @default(autoincrement())
+  postId    Int
+  userId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
 }
 
 model Experience {
   id          Int      @id @default(autoincrement())
   userId      Int
-  position    String   // Должность
-  company     String   // Компания
-  location    String   // Местоположение
-  startDate   String   // Дата начала
-  endDate     String   // Дата окончания
-  description String   // Описание
+  position    String
+  company     String
+  location    String
+  startDate   String
+  endDate     String
+  description String
   user        users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

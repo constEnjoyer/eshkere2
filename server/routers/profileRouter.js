@@ -17,14 +17,19 @@ router.put('/update', profileController.updateProfile);
 // Загрузка фото профиля текущего пользователя
 router.post('/upload-photo', fileUpload(), profileController.uploadPhoto);
 
-// Новый эндпоинт: получение профиля другого пользователя по ID
+// Получение профиля другого пользователя по ID
 router.get('/:userId', async(req, res) => {
     try {
         const { userId } = req.params;
-        console.log(`[GET /api/profile/${userId}] Fetching profile for userId: ${userId}`);
+        const parsedUserId = parseInt(userId);
+        if (isNaN(parsedUserId)) {
+            console.log(`[GET /api/profile/${userId}] Invalid userId: ${userId}`);
+            return res.status(400).json({ message: 'Invalid user ID' });
+        }
+        console.log(`[GET /api/profile/${userId}] Fetching profile for userId: ${parsedUserId}`);
 
         const user = await prisma.users.findUnique({
-            where: { id: parseInt(userId) },
+            where: { id: parsedUserId },
             select: {
                 id: true,
                 username: true,
@@ -56,7 +61,7 @@ router.get('/:userId', async(req, res) => {
             skills: user.skills || [],
             friendsCount: user.userFriendships.length + user.friendFriendships.length,
             postsCount: user.posts.length,
-            eventsCount: user.posts.length, // Предполагаем, что events = posts
+            eventsCount: user.posts.length,
         };
 
         console.log(`[GET /api/profile/${userId}] Profile fetched:`, profile);

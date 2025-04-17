@@ -57,7 +57,7 @@ type FormErrors = {
 export default function ProfilePage() {
   const { toast } = useToast();
   const params = useParams();
-  const userId = params.userId; // Получаем ID из URL
+  const userId = params.userId as string; // Получаем ID из URL
   const [profile, setProfile] = useState<Profile | null>(null);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -79,13 +79,15 @@ export default function ProfilePage() {
   const [isOwnProfile, setIsOwnProfile] = useState(false);
 
   useEffect(() => {
+    console.log("[ProfilePage] useEffect triggered, userId:", userId);
     const fetchProfile = async () => {
       try {
         setLoading(true);
         const url = userId
           ? `http://localhost:5000/api/profile/${userId}`
           : "http://localhost:5000/api/profile";
-        console.log(`[Frontend] Fetching profile from ${url}`);
+        console.log(`[ProfilePage] Fetching profile from ${url}`);
+
         const response = await fetch(url, {
           method: "GET",
           credentials: "include",
@@ -93,10 +95,13 @@ export default function ProfilePage() {
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.message || "Failed to fetch profile");
+          throw new Error(
+            errorData.message || `Failed to fetch profile: ${response.status}`
+          );
         }
 
         const data: Profile = await response.json();
+        console.log("[ProfilePage] Profile fetched:", data);
         setProfile(data);
 
         // Проверяем, является ли это профилем текущего пользователя
@@ -104,6 +109,9 @@ export default function ProfilePage() {
           method: "GET",
           credentials: "include",
         });
+        if (!myProfileResponse.ok) {
+          throw new Error("Failed to fetch my profile");
+        }
         const myProfile = await myProfileResponse.json();
         setIsOwnProfile(myProfile.id === data.id);
 
@@ -118,21 +126,31 @@ export default function ProfilePage() {
           newSkill: "",
         });
       } catch (error) {
+        console.error("[ProfilePage] Error fetching profile:", error);
         toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to load profile",
+          title: "Ошибка",
+          description:
+            error instanceof Error ? error.message : "Не удалось загрузить профиль",
           variant: "destructive",
         });
       } finally {
         setLoading(false);
       }
     };
-    fetchProfile();
-  }, [userId]);
+
+    if (userId) {
+      fetchProfile();
+    } else {
+      console.log("[ProfilePage] No userId provided, fetching current user profile");
+      fetchProfile();
+    }
+  }, [userId, toast]);
 
   const fetchFriends = async () => {
     try {
-      console.log(`[Frontend] Fetching friends from /api/friends${userId ? `/${userId}` : ''}`);
+      console.log(
+        `[ProfilePage] Fetching friends from /api/friends${userId ? `/${userId}` : ""}`
+      );
       const url = userId
         ? `http://localhost:5000/api/friends/${userId}`
         : "http://localhost:5000/api/friends";
@@ -147,12 +165,15 @@ export default function ProfilePage() {
       }
 
       const data: Friend[] = await response.json();
+      console.log("[ProfilePage] Friends fetched:", data);
       setFriends(data);
       setFriendsDialogOpen(true);
     } catch (error) {
+      console.error("[ProfilePage] Error fetching friends:", error);
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load friends",
+        title: "Ошибка",
+        description:
+          error instanceof Error ? error.message : "Не удалось загрузить друзей",
         variant: "destructive",
       });
     }
@@ -164,25 +185,35 @@ export default function ProfilePage() {
 
     switch (name) {
       case "firstName":
-        return value.trim() ? "" : "First name is required";
+        return value.trim() ? "" : "Имя обязательно";
       case "lastName":
-        return value.trim() ? "" : "Last name is required";
+        return value.trim() ? "" : "Фамилия обязательна";
       case "email":
-        return value && emailRegex.test(value) ? "" : "Valid email is required";
+        return value && emailRegex.test(value) ? "" : "Введите корректный email";
       case "phone":
-        return !value || phoneRegex.test(value) ? "" : "Phone must be in format +1234567890";
+        return !value || phoneRegex.test(value)
+          ? ""
+          : "Телефон должен быть в формате +1234567890";
       case "bio":
-        return value.length <= 255 ? "" : "Bio must be less than 255 characters";
+        return value.length <= 255
+          ? ""
+          : "Биография должна быть короче 255 символов";
       case "location":
-        return value.length <= 100 ? "" : "Location must be less than 100 characters";
+        return value.length <= 100
+          ? ""
+          : "Локация должна быть короче 100 символов";
       case "newSkill":
-        return value.length <= 50 ? "" : "Skill must be less than 50 characters";
+        return value.length <= 50
+          ? ""
+          : "Навык должен быть короче 50 символов";
       default:
         return "";
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
     setProfileForm({ ...profileForm, [name]: value });
     const error = validateField(name, value);
@@ -193,11 +224,14 @@ export default function ProfilePage() {
     const skill = profileForm.newSkill.trim();
     const error = validateField("newSkill", skill);
     if (error || !skill) {
-      setErrors((prev) => ({ ...prev, skills: error || "Skill cannot be empty" }));
+      setErrors((prev) => ({
+        ...prev,
+        skills: error || "Навык не может быть пустым",
+      }));
       return;
     }
     if (profileForm.skills.includes(skill)) {
-      setErrors((prev) => ({ ...prev, skills: "Skill already exists" }));
+      setErrors((prev) => ({ ...prev, skills: "Этот навык уже добавлен" }));
       return;
     }
     setProfileForm({
@@ -223,7 +257,11 @@ export default function ProfilePage() {
 
   const handleUploadPhoto = async () => {
     if (!photoFile) {
-      toast({ title: "Error", description: "No photo selected", variant: "destructive" });
+      toast({
+        title: "Ошибка",
+        description: "Фото не выбрано",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -231,11 +269,15 @@ export default function ProfilePage() {
     formData.append("profilePicture", photoFile);
 
     try {
-      const response = await fetch("http://localhost:5000/api/profile/upload-photo", {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
+      console.log("[ProfilePage] Uploading photo to /api/profile/upload-photo");
+      const response = await fetch(
+        "http://localhost:5000/api/profile/upload-photo",
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -243,13 +285,16 @@ export default function ProfilePage() {
       }
 
       const updatedProfile = await response.json();
+      console.log("[ProfilePage] Photo uploaded, updated profile:", updatedProfile);
       setProfile(updatedProfile);
       setPhotoFile(null);
-      toast({ title: "Success", description: "Photo uploaded successfully" });
+      toast({ title: "Успех", description: "Фото успешно загружено" });
     } catch (error) {
+      console.error("[ProfilePage] Error uploading photo:", error);
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to upload photo",
+        title: "Ошибка",
+        description:
+          error instanceof Error ? error.message : "Не удалось загрузить фото",
         variant: "destructive",
       });
     }
@@ -268,14 +313,15 @@ export default function ProfilePage() {
     setErrors(newErrors);
     if (Object.values(newErrors).some((error) => error)) {
       toast({
-        title: "Error",
-        description: "Please fix the errors in the form",
+        title: "Ошибка",
+        description: "Исправьте ошибки в форме",
         variant: "destructive",
       });
       return;
     }
 
     try {
+      console.log("[ProfilePage] Saving profile to /api/profile/update");
       const response = await fetch("http://localhost:5000/api/profile/update", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -296,13 +342,16 @@ export default function ProfilePage() {
       }
 
       const updatedProfile = await response.json();
+      console.log("[ProfilePage] Profile updated:", updatedProfile);
       setProfile(updatedProfile);
       setEditProfileOpen(false);
-      toast({ title: "Success", description: "Profile updated successfully" });
+      toast({ title: "Успех", description: "Профиль успешно обновлен" });
     } catch (error) {
+      console.error("[ProfilePage] Error updating profile:", error);
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update profile",
+        title: "Ошибка",
+        description:
+          error instanceof Error ? error.message : "Не удалось обновить профиль",
         variant: "destructive",
       });
     }
@@ -310,394 +359,483 @@ export default function ProfilePage() {
 
   const handleShareProfile = () => {
     if (!profile) {
-      toast({ title: "Error", description: "Profile not loaded", variant: "destructive" });
+      toast({
+        title: "Ошибка",
+        description: "Профиль не загружен",
+        variant: "destructive",
+      });
       return;
     }
-    const profileUrl = `https://realestatepro.com/profile/${profile.username.replace(" ", "-")}`;
+    const profileUrl = `https://realestatepro.com/profile/${profile.username.replace(
+      " ",
+      "-"
+    )}`;
     navigator.clipboard.writeText(profileUrl);
-    toast({ title: "Success", description: "Profile link copied to clipboard" });
+    console.log("[ProfilePage] Profile link copied:", profileUrl);
+    toast({ title: "Успех", description: "Ссылка на профиль скопирована" });
     setShareDialogOpen(false);
   };
 
-  if (loading) return <div className="container px-4 py-8">Loading...</div>;
+  if (loading) return <div className="container px-4 py-8">Загрузка...</div>;
+
+  if (!profile) {
+    return (
+      <div className="container px-4 py-8">
+        <h1 className="text-2xl font-bold">Пользователь не найден</h1>
+      </div>
+    );
+  }
 
   return (
     <ProtectedRoute>
-    <div className="container px-4 py-8 md:px-6 md:py-12">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
-        <div className="space-y-8">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5 }}
-            className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
-          >
-            <div className="flex flex-col items-center text-center">
-              <div className="relative">
-                <Avatar className="h-24 w-24 border-4 border-primary/20">
-                  <AvatarImage
-                    src={profile?.profilePicture || "/placeholder.svg?height=96&width=96"}
-                    alt={profile?.username}
-                  />
-                  <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                    {profile?.username?.slice(0, 2).toUpperCase() || "RB"}
-                  </AvatarFallback>
-                </Avatar>
-                {isOwnProfile && (
-                  <Button
-                    size="icon"
-                    className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full bg-primary text-white hover:bg-primary/90"
-                    onClick={() => setEditProfileOpen(true)}
+      <div className="container px-4 py-8 md:px-6 md:py-12">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
+          <div className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+              className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className="relative">
+                  <Avatar className="h-24 w-24 border-4 border-primary/20">
+                    <AvatarImage
+                      src={
+                        profile.profilePicture ||
+                        "/placeholder.svg?height=96&width=96"
+                      }
+                      alt={profile.username}
+                    />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
+                      {profile.username.slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  {isOwnProfile && (
+                    <Button
+                      size="icon"
+                      className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full bg-primary text-white hover:bg-primary/90"
+                      onClick={() => setEditProfileOpen(true)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <div className="mt-4">
+                  <h2 className="text-xl font-bold">{profile.username}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Агент по недвижимости
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    События
+                  </span>
+                  <Badge variant="outline" className="bg-primary/5">
+                    {profile.eventsCount}
+                  </Badge>
+                </div>
+                <Separator />
+                <div
+                  className="flex items-center justify-between cursor-pointer"
+                  onClick={fetchFriends}
+                >
+                  <span className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-primary" />
+                    Подписчики
+                  </span>
+                  <Badge variant="outline" className="bg-primary/5">
+                    {profile.friendsCount}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setShareDialogOpen(true)}
+                >
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Поделиться
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+
+          <div className="lg:col-span-3">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="mb-8 rounded-xl border bg-white shadow-sm dark:bg-gray-900"
+            >
+              <Tabs defaultValue="about-company">
+                <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
+                  <TabsTrigger
+                    value="about-company"
+                    className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
                   >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-              <div className="mt-4">
-                <h2 className="text-xl font-bold">{profile?.username}</h2>
-                <p className="text-sm text-muted-foreground">Real estate agent</p>
-              </div>
-            </div>
+                    О КОМПАНИИ
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="agent-info"
+                    className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+                  >
+                    ИНФОРМАЦИЯ ОБ АГЕНТЕ
+                  </TabsTrigger>
+                </TabsList>
 
-            <div className="mt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-primary" />
-                  Events
-                </span>
-                <Badge variant="outline" className="bg-primary/5">
-                  {profile?.eventsCount ?? 0}
-                </Badge>
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between cursor-pointer" onClick={fetchFriends}>
-                <span className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-primary" />
-                  Followers
-                </span>
-                <Badge variant="outline" className="bg-primary/5">
-                  {profile?.friendsCount ?? 0}
-                </Badge>
-              </div>
-            </div>
+                <TabsContent value="about-company" className="p-6">
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-lg font-semibold text-primary">О НАС</h2>
+                      <div className="mt-4 rounded-lg border p-4 bg-muted/30">
+                        <p className="text-muted-foreground">
+                          {profile.bio || "Биография не указана"}
+                        </p>
+                      </div>
+                    </div>
 
-            <div className="mt-6 grid grid-cols-2 gap-2">
-              <Button variant="outline" className="w-full" onClick={() => setShareDialogOpen(true)}>
-                <Share2 className="mr-2 h-4 w-4" />
-                Share
-              </Button>
-            </div>
-          </motion.div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-primary">НАВЫКИ</h2>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {profile.skills.length > 0 ? (
+                          profile.skills.map((skill, index) => (
+                            <Badge
+                              key={index}
+                              className="bg-primary/10 text-primary hover:bg-primary/20"
+                            >
+                              {skill}
+                            </Badge>
+                          ))
+                        ) : (
+                          <p className="text-muted-foreground">
+                            Навыки не указаны
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="agent-info" className="p-6">
+                  <h2 className="text-xl font-bold">Информация об агенте</h2>
+                  <div className="mt-6 grid gap-6 md:grid-cols-2">
+                    <div className="rounded-lg border p-4">
+                      <h3 className="flex items-center gap-2 font-medium">
+                        <Users className="h-5 w-5 text-primary" />
+                        Контактные данные
+                      </h3>
+                      <div className="mt-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-primary/5">
+                            Email
+                          </Badge>
+                          <span className="text-sm">{profile.email}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-primary/5">
+                            Телефон
+                          </Badge>
+                          <span className="text-sm">
+                            {profile.phone || "Не указан"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="bg-primary/5">
+                            Офис
+                          </Badge>
+                          <span className="text-sm">
+                            {profile.location || "Не указан"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </motion.div>
+          </div>
         </div>
 
-        <div className="lg:col-span-3">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mb-8 rounded-xl border bg-white shadow-sm dark:bg-gray-900"
-          >
-            <Tabs defaultValue="about-company">
-              <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
-                <TabsTrigger
-                  value="about-company"
-                  className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-                >
-                  ABOUT COMPANY
-                </TabsTrigger>
-                <TabsTrigger
-                  value="agent-info"
-                  className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-                >
-                  AGENT INFO
-                </TabsTrigger>
-              </TabsList>
+        {isOwnProfile && (
+          <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
+            <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-primary" />
+                  Редактировать профиль
+                </DialogTitle>
+                <DialogDescription>
+                  Обновите вашу личную информацию.
+                </DialogDescription>
+              </DialogHeader>
 
-              <TabsContent value="about-company" className="p-6">
-                <div className="space-y-6">
-                  <div>
-                    <h2 className="text-lg font-semibold text-primary">ABOUT</h2>
-                    <div className="mt-4 rounded-lg border p-4 bg-muted/30">
-                      <p className="text-muted-foreground">{profile?.bio || "No bio provided"}</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h2 className="text-lg font-semibold text-primary">SKILLS</h2>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {profile?.skills?.map((skill, index) => (
-                        <Badge
-                          key={index}
-                          className="bg-primary/10 text-primary hover:bg-primary/20"
-                        >
-                          {skill}
-                        </Badge>
-                      )) || <p className="text-muted-foreground">No skills listed</p>}
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="agent-info" className="p-6">
-                <h2 className="text-xl font-bold">Agent Information</h2>
-                <div className="mt-6 grid gap-6 md:grid-cols-2">
-                  <div className="rounded-lg border p-4">
-                    <h3 className="flex items-center gap-2 font-medium">
-                      <Users className="h-5 w-5 text-primary" />
-                      Contact Details
-                    </h3>
-                    <div className="mt-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-primary/5">
-                          Email
-                        </Badge>
-                        <span className="text-sm">{profile?.email}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-primary/5">
-                          Phone
-                        </Badge>
-                        <span className="text-sm">{profile?.phone || "Not provided"}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="bg-primary/5">
-                          Office
-                        </Badge>
-                        <span className="text-sm">{profile?.location || "Not provided"}</span>
-                      </div>
-                    </div>
+              <div className="grid gap-4 py-4">
+                <div className="flex flex-col items-center gap-4">
+                  <Avatar className="h-24 w-24 border-4 border-primary/20">
+                    <AvatarImage
+                      src={
+                        photoFile
+                          ? URL.createObjectURL(photoFile)
+                          : profile.profilePicture ||
+                            "/placeholder.svg?height=96&width=96"
+                      }
+                      alt="Профиль"
+                    />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
+                      {profile.username.slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex gap-2">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoChange}
+                      className="w-auto"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleUploadPhoto}
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Загрузить
+                    </Button>
                   </div>
                 </div>
-              </TabsContent>
-            </Tabs>
-          </motion.div>
-        </div>
-      </div>
 
-      {isOwnProfile && (
-        <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
-          <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">Имя</Label>
+                    <Input
+                      id="firstName"
+                      name="firstName"
+                      value={profileForm.firstName}
+                      onChange={handleInputChange}
+                      className={errors.firstName ? "border-red-500" : ""}
+                    />
+                    {errors.firstName && (
+                      <p className="text-red-500 text-sm">{errors.firstName}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Фамилия</Label>
+                    <Input
+                      id="lastName"
+                      name="lastName"
+                      value={profileForm.lastName}
+                      onChange={handleInputChange}
+                      className={errors.lastName ? "border-red-500" : ""}
+                    />
+                    {errors.lastName && (
+                      <p className="text-red-500 text-sm">{errors.lastName}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    value={profileForm.email}
+                    onChange={handleInputChange}
+                    className={errors.email ? "border-red-500" : ""}
+                  />
+                  {errors.email && (
+                    <p className="text-red-500 text-sm">{errors.email}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Телефон</Label>
+                  <Input
+                    id="phone"
+                    name="phone"
+                    value={profileForm.phone}
+                    onChange={handleInputChange}
+                    className={errors.phone ? "border-red-500" : ""}
+                  />
+                  {errors.phone && (
+                    <p className="text-red-500 text-sm">{errors.phone}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="bio">Биография</Label>
+                  <Textarea
+                    id="bio"
+                    name="bio"
+                    rows={4}
+                    value={profileForm.bio}
+                    onChange={handleInputChange}
+                    className={errors.bio ? "border-red-500" : ""}
+                  />
+                  {errors.bio && (
+                    <p className="text-red-500 text-sm">{errors.bio}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="location">Локация</Label>
+                  <Input
+                    id="location"
+                    name="location"
+                    value={profileForm.location}
+                    onChange={handleInputChange}
+                    className={errors.location ? "border-red-500" : ""}
+                  />
+                  {errors.location && (
+                    <p className="text-red-500 text-sm">{errors.location}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Навыки</Label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {profileForm.skills.map((skill, index) => (
+                      <Badge
+                        key={index}
+                        variant="secondary"
+                        className="flex items-center gap-1"
+                      >
+                        {skill}
+                        <Trash2
+                          className="h-4 w-4 cursor-pointer text-red-500"
+                          onClick={() => handleRemoveSkill(skill)}
+                        />
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      name="newSkill"
+                      value={profileForm.newSkill}
+                      onChange={handleInputChange}
+                      placeholder="Добавить новый навык"
+                      className={errors.skills ? "border-red-500" : ""}
+                    />
+                    <Button variant="outline" onClick={handleAddSkill}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {errors.skills && (
+                    <p className="text-red-500 text-sm">{errors.skills}</p>
+                  )}
+                </div>
+              </div>
+
+              <DialogFooter className="sticky bottom-0 bg-background pt-4 dark:bg-gray-900">
+                <Button
+                  variant="outline"
+                  onClick={() => setEditProfileOpen(false)}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  className="bg-primary hover:bg-primary/90"
+                  onClick={handleSaveProfile}
+                >
+                  Сохранить изменения
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <UserPlus className="h-5 w-5 text-primary" />
-                Edit Profile
+                <Share2 className="h-5 w-5 text-primary" />
+                Поделиться профилем
               </DialogTitle>
-              <DialogDescription>Update your personal information.</DialogDescription>
+              <DialogDescription>
+                Поделитесь вашим профилем с другими.
+              </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-4 py-4">
-              <div className="flex flex-col items-center gap-4">
-                <Avatar className="h-24 w-24 border-4 border-primary/20">
-                  <AvatarImage
-                    src={
-                      photoFile
-                        ? URL.createObjectURL(photoFile)
-                        : profile?.profilePicture || "/placeholder.svg?height=96&width=96"
-                    }
-                    alt="Profile"
-                  />
-                  <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                    {profile?.username?.slice(0, 2).toUpperCase() || "RB"}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex gap-2">
-                  <Input type="file" accept="image/*" onChange={handlePhotoChange} className="w-auto" />
-                  <Button variant="outline" size="sm" onClick={handleUploadPhoto}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Upload
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">First name</Label>
-                  <Input
-                    id="firstName"
-                    name="firstName"
-                    value={profileForm.firstName}
-                    onChange={handleInputChange}
-                    className={errors.firstName ? "border-red-500" : ""}
-                  />
-                  {errors.firstName && <p className="text-red-500 text-sm">{errors.firstName}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last name</Label>
-                  <Input
-                    id="lastName"
-                    name="lastName"
-                    value={profileForm.lastName}
-                    onChange={handleInputChange}
-                    className={errors.lastName ? "border-red-500" : ""}
-                  />
-                  {errors.lastName && <p className="text-red-500 text-sm">{errors.lastName}</p>}
-                </div>
-              </div>
-
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label>Ссылка на профиль</Label>
                 <Input
-                  id="email"
-                  name="email"
-                  value={profileForm.email}
-                  onChange={handleInputChange}
-                  className={errors.email ? "border-red-500" : ""}
+                  readOnly
+                  value={
+                    profile.username
+                      ? `https://realestatepro.com/profile/${profile.username.replace(
+                          " ",
+                          "-"
+                        )}`
+                      : "Профиль не загружен"
+                  }
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
                 />
-                {errors.email && <p className="text-red-500 text-sm">{errors.email}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  name="phone"
-                  value={profileForm.phone}
-                  onChange={handleInputChange}
-                  className={errors.phone ? "border-red-500" : ""}
-                />
-                {errors.phone && <p className="text-red-500 text-sm">{errors.phone}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  name="bio"
-                  rows={4}
-                  value={profileForm.bio}
-                  onChange={handleInputChange}
-                  className={errors.bio ? "border-red-500" : ""}
-                />
-                {errors.bio && <p className="text-red-500 text-sm">{errors.bio}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  name="location"
-                  value={profileForm.location}
-                  onChange={handleInputChange}
-                  className={errors.location ? "border-red-500" : ""}
-                />
-                {errors.location && <p className="text-red-500 text-sm">{errors.location}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Skills</Label>
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {profileForm.skills.map((skill, index) => (
-                    <Badge key={index} variant="secondary" className="flex items-center gap-1">
-                      {skill}
-                      <Trash2
-                        className="h-4 w-4 cursor-pointer text-red-500"
-                        onClick={() => handleRemoveSkill(skill)}
-                      />
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    name="newSkill"
-                    value={profileForm.newSkill}
-                    onChange={handleInputChange}
-                    placeholder="Add new skill"
-                    className={errors.skills ? "border-red-500" : ""}
-                  />
-                  <Button variant="outline" onClick={handleAddSkill}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                {errors.skills && <p className="text-red-500 text-sm">{errors.skills}</p>}
               </div>
             </div>
 
-            <DialogFooter className="sticky bottom-0 bg-background pt-4 dark:bg-gray-900">
-              <Button variant="outline" onClick={() => setEditProfileOpen(false)}>
-                Cancel
-              </Button>
-              <Button className="bg-primary hover:bg-primary/90" onClick={handleSaveProfile}>
-                Save changes
+            <DialogFooter>
+              <Button onClick={handleShareProfile}>Скопировать ссылку</Button>
+              <Button
+                variant="outline"
+                onClick={() => setShareDialogOpen(false)}
+              >
+                Закрыть
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      )}
 
-      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Share2 className="h-5 w-5 text-primary" />
-              Share Profile
-            </DialogTitle>
-            <DialogDescription>Share your profile with others.</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Profile Link</Label>
-              <Input
-                readOnly
-                value={
-                  profile?.username
-                    ? `https://realestatepro.com/profile/${profile.username.replace(" ", "-")}`
-                    : "Profile not loaded"
-                }
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button onClick={handleShareProfile}>Copy Link</Button>
-            <Button variant="outline" onClick={() => setShareDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={friendsDialogOpen} onOpenChange={setFriendsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
-              Friends
-            </DialogTitle>
-            <DialogDescription>Your list of friends.</DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
-            {friends.length > 0 ? (
-              friends.map((friend) => (
-                <div
-                  key={friend.id}
-                  className="flex items-center justify-between p-2 border rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage
-                        src={friend.profilePicture || "/placeholder.svg?height=40&width=40"}
-                        alt={friend.username}
-                      />
-                      <AvatarFallback>{friend.username.slice(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <span>{friend.username}</span>
+        <Dialog open={friendsDialogOpen} onOpenChange={setFriendsDialogOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                Друзья
+              </DialogTitle>
+              <DialogDescription>Ваш список друзей.</DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-4">
+              {friends.length > 0 ? (
+                friends.map((friend) => (
+                  <div
+                    key={friend.id}
+                    className="flex items-center justify-between p-2 border rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage
+                          src={
+                            friend.profilePicture ||
+                            "/placeholder.svg?height=40&width=40"
+                          }
+                          alt={friend.username}
+                        />
+                        <AvatarFallback>
+                          {friend.username.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span>{friend.username}</span>
+                    </div>
+                    <Link href={`/profile/${friend.id}`}>
+                      <Button variant="outline" size="sm">
+                        Посмотреть профиль
+                      </Button>
+                    </Link>
                   </div>
-                  <Link href={`/profile/${friend.id}`}>
-                    <Button variant="outline" size="sm">
-                      View Profile
-                    </Button>
-                  </Link>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground">No friends yet.</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
+                ))
+              ) : (
+                <p className="text-muted-foreground">Друзей пока нет.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
     </ProtectedRoute>
   );
 }
@@ -719,6 +857,5 @@ function Home(props: any) {
       <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
       <polyline points="9 22 9 12 15 12 15 22" />
     </svg>
-    
   );
 }

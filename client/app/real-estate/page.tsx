@@ -1,769 +1,636 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import Image from "next/image"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Card } from "@/components/ui/card"
+import { useState, useEffect } from "react";
+import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import {
   MapPin,
   Bed,
   Bath,
   SquareIcon,
-  MoreHorizontal,
   Heart,
   MessageSquare,
-  Share2,
-  Filter,
   Search,
-  Sliders,
   Plus,
-} from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
-import { Slider } from "@/components/ui/slider"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { NewListingModal } from "@/components/new-listing-modal"
-import { useAuth } from "@/context/auth-context"
-import { useRouter } from "next/navigation"
+  ShoppingCart,
+} from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { Slider } from "@/components/ui/slider";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAuth } from "@/context/auth-context";
+import { useRouter } from "next/navigation";
+import { NewListingModal } from "@/components/new-listing-modal";
+
+interface Seller {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  avatar?: string | null;
+  skills: string[];
+}
+
+interface Property {
+  id: number;
+  authorId: number;
+  title: string;
+  description: string;
+  location: string;
+  price: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  squareMeters?: number;
+  imageUrl?: string | null;
+  createdAt: string;
+  likes: number[];
+  seller: Seller;
+}
 
 export default function RealEstatePage() {
-  const { toast } = useToast()
-  const { user } = useAuth()
-  const router = useRouter()
-  const [favorites, setFavorites] = useState<string[]>([])
-  const [priceRange, setPriceRange] = useState([50000, 500000])
-  const [sizeRange, setSizeRange] = useState([30, 200])
-  const [newListingOpen, setNewListingOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [propertyType, setPropertyType] = useState("any")
-  const [bedroomsFilter, setBedroomsFilter] = useState("Any")
-  const [bathroomsFilter, setBathroomsFilter] = useState("Any")
-  const [sortOption, setSortOption] = useState("newest")
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const router = useRouter();
 
-  // Default properties
-  const defaultProperties = [
-    {
-      id: "villa1",
-      title: "Villa in first line of the beach",
-      location: "Torrevieja Spain",
-      address: "Calle Finlandia 10 3ºB Torrevieja 03183",
-      price: "350.000€",
-      beds: 2,
-      baths: 2,
-      size: "90m²",
-      seller: {
-        name: "Yana Baskaf",
-        phone: "+34 677 130 650",
-        email: "Yana@gmail.com",
-      },
-      createdAt: new Date("2023-01-15").getTime(),
-    },
-    {
-      id: "house1",
-      title: "Beautiful house with big plot and private parking",
-      location: "Rivne Ukraine",
-      address: "Vylucia Rivnenska 33000",
-      price: "330.000€",
-      beds: 3,
-      baths: 3,
-      size: "150m²",
-      seller: {
-        name: "Andriy Probenyuk",
-        phone: "+34 677 130 650",
-        email: "Drobenyuk@gmail.com",
-      },
-      createdAt: new Date("2023-02-20").getTime(),
-    },
-    {
-      id: "apt1",
-      title: "Apartment in center of the city",
-      location: "Valencia, Spain",
-      address: "Calle Ucrania 10 Valencia 46070",
-      price: "250.000€",
-      beds: 2,
-      baths: 1,
-      size: "70m²",
-      seller: {
-        name: "Dmytro Khytkyy",
-        phone: "+34 677 130 650",
-        email: "Dmytro@gmail.com",
-      },
-      createdAt: new Date("2023-03-10").getTime(),
-    },
-  ]
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
+  const [cart, setCart] = useState<number[]>([]);
+  const [cartItems, setCartItems] = useState<Property[]>([]);
+  const [friends, setFriends] = useState<number[]>([]);
+  const [showFriendsOnly, setShowFriendsOnly] = useState(false);
+  const [priceRange, setPriceRange] = useState([0, Infinity]);
+  const [sizeRange, setSizeRange] = useState([0, Infinity]);
+  const [newListingOpen, setNewListingOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [propertyType, setPropertyType] = useState("any");
+  const [bedroomsFilter, setBedroomsFilter] = useState("Any");
+  const [bathroomsFilter, setBathroomsFilter] = useState("Any");
+  const [sortOption, setSortOption] = useState("newest");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [properties, setProperties] = useState(defaultProperties)
-  const [filteredProperties, setFilteredProperties] = useState(defaultProperties)
-
-  // Load properties from localStorage on component mount
   useEffect(() => {
-    try {
-      const savedProperties = JSON.parse(localStorage.getItem("realEstateListings") || "[]")
-      if (savedProperties.length > 0) {
-        const allProperties = [...defaultProperties, ...savedProperties]
-        setProperties(allProperties)
-        setFilteredProperties(allProperties)
-      }
-    } catch (error) {
-      console.error("Error loading properties from localStorage:", error)
-    }
-  }, [])
+    console.log("[RealEstatePage] useEffect triggered, userId:", user?.id || "no user");
 
-  // Apply filters whenever filter values change
-  useEffect(() => {
-    applyFilters()
-  }, [searchQuery, propertyType, bedroomsFilter, bathroomsFilter, priceRange, sizeRange, sortOption])
-
-  const toggleFavorite = (id: string) => {
-    // Check if user is logged in
-    if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "Please log in to save favorites",
-        variant: "destructive",
-      })
-      router.push("/login")
-      return
+    if (!user || !user.id) {
+      console.log("[RealEstatePage] No user, resetting state");
+      setProperties([]);
+      setFilteredProperties([]);
+      setFriends([]);
+      setCart([]);
+      setCartItems([]);
+      setIsLoading(false);
+      setError("Пользователь не авторизован");
+      return;
     }
 
-    let newFavorites = [...favorites]
-
-    if (favorites.includes(id)) {
-      newFavorites = favorites.filter((item) => item !== id)
-      toast({
-        title: "Removed from favorites",
-        description: "Property has been removed from your favorites",
-      })
-    } else {
-      newFavorites = [...favorites, id]
-      toast({
-        title: "Added to favorites",
-        description: "Property has been added to your favorites",
-      })
-    }
-
-    // Update state
-    setFavorites(newFavorites)
-
-    // Save to localStorage
-    try {
-      localStorage.setItem(`favorites-${user.id}`, JSON.stringify(newFavorites))
-    } catch (error) {
-      console.error("Error saving favorites:", error)
-    }
-  }
-
-  // Add useEffect to load favorites from localStorage on component mount:
-  useEffect(() => {
-    if (user) {
+    const userId = parseInt(user.id);
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        const savedFavorites = JSON.parse(localStorage.getItem(`favorites-${user.id}`) || "[]")
-        setFavorites(savedFavorites)
-      } catch (error) {
-        console.error("Error loading favorites from localStorage:", error)
+        console.log("[RealEstatePage] Fetching posts from /api/posts/feed");
+        const propsRes = await fetch("http://localhost:5000/api/posts/feed", {
+          credentials: "include",
+        });
+        if (!propsRes.ok) {
+          const text = await propsRes.text();
+          console.error("[RealEstatePage] Posts fetch failed:", propsRes.status, text);
+          throw new Error(`Failed to fetch posts: ${propsRes.status} ${text.slice(0, 100)}`);
+        }
+        const propsData = await propsRes.json();
+        console.log("[RealEstatePage] Posts fetched:", propsData);
+        setProperties(propsData || []);
+        setFilteredProperties(propsData || []);
+
+        console.log("[RealEstatePage] Fetching friends from /api/friends");
+        const friendsRes = await fetch("http://localhost:5000/api/friends", {
+          credentials: "include",
+        });
+        if (!friendsRes.ok) {
+          const text = await friendsRes.text();
+          console.error("[RealEstatePage] Friends fetch failed:", friendsRes.status, text);
+          throw new Error(`Failed to fetch friends: ${friendsRes.status} ${text.slice(0, 100)}`);
+        }
+        const friendsData = await friendsRes.json();
+        console.log("[RealEstatePage] Friends fetched:", friendsData);
+        setFriends(friendsData.map((f: { id: number }) => f.id) || []);
+
+        const savedCart = JSON.parse(localStorage.getItem(`cart-${userId}`) || "[]");
+        console.log("[RealEstatePage] Loaded cart:", savedCart);
+        setCart(savedCart);
+
+        if (savedCart.length > 0) {
+          console.log("[RealEstatePage] Fetching cart items from /api/posts/multiple");
+          const cartRes = await fetch("http://localhost:5000/api/posts/multiple", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ postIds: savedCart }),
+            credentials: "include",
+          });
+          if (!cartRes.ok) {
+            const text = await cartRes.text();
+            console.error("[RealEstatePage] Cart fetch failed:", cartRes.status, text);
+            throw new Error(`Failed to fetch cart items: ${cartRes.status} ${text.slice(0, 100)}`);
+          }
+          const cartData = await cartRes.json();
+          console.log("[RealEstatePage] Cart items fetched:", cartData);
+
+          // Фильтруем несуществующие посты
+          const validCartItems = cartData.filter((item: Property) => item.id);
+          const validCartIds = validCartItems.map((item: Property) => item.id);
+          setCartItems(validCartItems || []);
+          if (validCartIds.length !== savedCart.length) {
+            setCart(validCartIds);
+            localStorage.setItem(`cart-${userId}`, JSON.stringify(validCartIds));
+            toast({
+              title: "Корзина обновлена",
+              description: "Некоторые посты были удалены, так как они больше не существуют",
+              variant: "default",
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error("[RealEstatePage] Error fetching data:", error);
+        setError(error.message || "Не удалось загрузить данные");
+        toast({
+          title: "Ошибка",
+          description: error.message || "Не удалось загрузить данные",
+          variant: "destructive",
+        });
+      } finally {
+        setIsLoading(false);
       }
+    };
+
+    fetchData();
+  }, [user?.id, toast]);
+
+  useEffect(() => {
+    console.log("[RealEstatePage] Filtering properties, count:", properties.length);
+    if (!properties || properties.length === 0) {
+      setFilteredProperties([]);
+      return;
     }
-  }, [user])
 
-  const applyFilters = () => {
-    let filtered = [...properties]
+    let filtered = [...properties];
 
-    // Apply search query filter
+    if (showFriendsOnly && friends.length > 0) {
+      filtered = filtered.filter((p) => friends.includes(p.authorId));
+    }
+
     if (searchQuery) {
-      const query = searchQuery.toLowerCase()
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (property) =>
-          property.title.toLowerCase().includes(query) ||
-          property.location.toLowerCase().includes(query) ||
-          property.address.toLowerCase().includes(query),
-      )
+        (p) =>
+          (p.title?.toLowerCase()?.includes(query) || false) ||
+          (p.description?.toLowerCase()?.includes(query) || false) ||
+          (p.location?.toLowerCase()?.includes(query) || false)
+      );
     }
 
-    // Apply property type filter
     if (propertyType !== "any") {
-      filtered = filtered.filter((property) => {
-        // This is a simplified example. In a real app, you'd have a property type field
-        if (propertyType === "apartment") return property.title.toLowerCase().includes("apartment")
-        if (propertyType === "house") return property.title.toLowerCase().includes("house")
-        if (propertyType === "villa") return property.title.toLowerCase().includes("villa")
-        if (propertyType === "bungalow") return property.title.toLowerCase().includes("bungalow")
-        if (propertyType === "townhouse") return property.title.toLowerCase().includes("townhouse")
-        return true
-      })
+      filtered = filtered.filter((p) =>
+        p.title?.toLowerCase()?.includes(propertyType.toLowerCase())
+      );
     }
 
-    // Apply bedrooms filter
     if (bedroomsFilter !== "Any") {
-      const minBeds = Number.parseInt(bedroomsFilter.replace("+", ""))
-      filtered = filtered.filter((property) => property.beds >= minBeds)
+      const minBeds = parseInt(bedroomsFilter.replace("+", ""));
+      filtered = filtered.filter((p) => (p.bedrooms || 0) >= minBeds);
     }
 
-    // Apply bathrooms filter
     if (bathroomsFilter !== "Any") {
-      const minBaths = Number.parseInt(bathroomsFilter.replace("+", ""))
-      filtered = filtered.filter((property) => property.baths >= minBaths)
+      const minBaths = parseInt(bathroomsFilter.replace("+", ""));
+      filtered = filtered.filter((p) => (p.bathrooms || 0) >= minBaths);
     }
 
-    // Apply price range filter
-    filtered = filtered.filter((property) => {
-      const price = Number.parseInt(property.price.replace(/[^0-9]/g, ""))
-      return price >= priceRange[0] && price <= priceRange[1]
-    })
+    filtered = filtered.filter((p) => {
+      const price = p.price || 0;
+      return price >= priceRange[0] && price <= (priceRange[1] || Infinity);
+    });
 
-    // Apply size range filter
-    filtered = filtered.filter((property) => {
-      const size = Number.parseInt(property.size.replace(/[^0-9]/g, ""))
-      return size >= sizeRange[0] && size <= sizeRange[1]
-    })
+    filtered = filtered.filter((p) => {
+      const size = p.squareMeters || 0;
+      return size >= sizeRange[0] && size <= (sizeRange[1] || Infinity);
+    });
 
-    // Apply sorting
     filtered.sort((a, b) => {
       if (sortOption === "newest") {
-        return (b.createdAt || 0) - (a.createdAt || 0)
-      } else if (sortOption === "price-asc") {
-        const priceA = Number.parseInt(a.price.replace(/[^0-9]/g, ""))
-        const priceB = Number.parseInt(b.price.replace(/[^0-9]/g, ""))
-        return priceA - priceB
-      } else if (sortOption === "price-desc") {
-        const priceA = Number.parseInt(a.price.replace(/[^0-9]/g, ""))
-        const priceB = Number.parseInt(b.price.replace(/[^0-9]/g, ""))
-        return priceB - priceA
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
-      return 0
-    })
+      if (sortOption === "price-asc") {
+        return (a.price || 0) - (b.price || 0);
+      }
+      if (sortOption === "price-desc") {
+        return (b.price || 0) - (a.price || 0);
+      }
+      return 0;
+    });
 
-    setFilteredProperties(filtered)
-  }
+    setFilteredProperties(filtered);
+    console.log("[RealEstatePage] Filtered properties:", filtered);
+  }, [
+    properties,
+    searchQuery,
+    propertyType,
+    bedroomsFilter,
+    bathroomsFilter,
+    priceRange,
+    sizeRange,
+    sortOption,
+    showFriendsOnly,
+    friends,
+  ]);
 
-  const resetFilters = () => {
-    setSearchQuery("")
-    setPropertyType("any")
-    setBedroomsFilter("Any")
-    setBathroomsFilter("Any")
-    setPriceRange([50000, 500000])
-    setSizeRange([30, 200])
-    setSortOption("newest")
+  const toggleLike = async (postId: number) => {
+    if (!user || !user.id) {
+      toast({
+        title: "Требуется авторизация",
+        description: "Пожалуйста, войдите, чтобы поставить лайк",
+        variant: "destructive",
+      });
+      router.push("/login");
+      return;
+    }
 
-    toast({
-      title: "Filters reset",
-      description: "All filters have been reset to default values",
-    })
-  }
+    try {
+      const res = await fetch(`http://localhost:5000/api/posts/${postId}/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("[RealEstatePage] Like failed:", res.status, text);
+        throw new Error(`Failed to update like: ${res.status} ${text.slice(0, 100)}`);
+      }
+      const updatedPost = await res.json();
+      setProperties((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: updatedPost.likes } : p))
+      );
+      setFilteredProperties((prev) =>
+        prev.map((p) => (p.id === postId ? { ...p, likes: updatedPost.likes } : p))
+      );
+      toast({
+        title: updatedPost.likes.includes(parseInt(user.id)) ? "Лайк поставлен" : "Лайк убран",
+        description: `Пост ${postId}`,
+      });
+    } catch (error) {
+      console.error("[RealEstatePage] Error updating like:", error);
+      toast({
+        title: "Ошибка",
+        description: "Не удалось обновить лайк",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleCart = async (postId: number) => {
+    if (!user || !user.id) {
+      toast({
+        title: "Требуется авторизация",
+        description: "Пожалуйста, войдите, чтобы добавить в корзину",
+        variant: "destructive",
+      });
+      router.push("/login");
+      return;
+    }
+
+    let newCart: number[];
+    if (cart.includes(postId)) {
+      newCart = cart.filter((id) => id !== postId);
+      setCartItems((prev) => prev.filter((item) => item.id !== postId));
+      toast({ title: "Удалено из корзины", description: `Пост ${postId}` });
+    } else {
+      newCart = [...cart, postId];
+      const post = properties.find((p) => p.id === postId);
+      if (post) {
+        setCartItems((prev) => [...prev, post]);
+        toast({ title: "Добавлено в корзину", description: `Пост ${postId}` });
+      }
+    }
+    setCart(newCart);
+    localStorage.setItem(`cart-${user.id}`, JSON.stringify(newCart));
+  };
+
+  const openChat = (authorId: number) => {
+    if (!user || !user.id) {
+      toast({
+        title: "Требуется авторизация",
+        description: "Пожалуйста, войдите, чтобы начать чат",
+        variant: "destructive",
+      });
+      router.push("/login");
+      return;
+    }
+
+    localStorage.setItem("activeChat", authorId.toString());
+    router.push("/chat");
+  };
+
+  const removeFromCart = (postId: number) => {
+    if (!user || !user.id) return;
+    const newCart = cart.filter((id) => id !== postId);
+    setCart(newCart);
+    setCartItems((prev) => prev.filter((item) => item.id !== postId));
+    localStorage.setItem(`cart-${user.id}`, JSON.stringify(newCart));
+    toast({ title: "Удалено из корзины", description: `Пост ${postId}` });
+  };
+
+  const handleNewListingCreated = (newPost: Property) => {
+    setProperties((prev) => [newPost, ...prev]);
+    setFilteredProperties((prev) => [newPost, ...prev]);
+    setNewListingOpen(false);
+    toast({ title: "Успех", description: "Объявление создано" });
+  };
 
   return (
-    <div className="container px-4 py-8 md:px-6 md:py-12">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
-        {/* Left Sidebar - Filters */}
-        <div className="space-y-8">
-          <div>
-            <Button className="w-full bg-primary text-white hover:bg-primary/90">
-              <MapPin className="mr-2 h-4 w-4" />
-              Map search
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Недвижимость</h1>
+        {user && (
+          <div className="flex gap-2">
+            <Button onClick={() => setNewListingOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" /> Создать объявление
+            </Button>
+            <Button variant="outline" onClick={() => setCartOpen(true)}>
+              <ShoppingCart className="mr-2 h-4 w-4" /> Корзина ({cart.length})
             </Button>
           </div>
+        )}
+      </div>
 
-          <div className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-primary">FILTERS</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-primary"
-                onClick={resetFilters}
-              >
-                Reset all
-              </Button>
-            </div>
-
-            <div className="mt-6 space-y-6">
-              <div>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    type="text"
-                    placeholder="Search properties..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-4 font-medium">Property Type</h3>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    variant="outline"
-                    className={`flex h-auto flex-col gap-1 p-3 ${propertyType === "apartment" ? "border-primary bg-primary/5" : "hover:border-primary hover:bg-primary/5"}`}
-                    onClick={() => setPropertyType(propertyType === "apartment" ? "any" : "apartment")}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-6 w-6 text-primary"
-                    >
-                      <path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
-                      <path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9" />
-                      <path d="M12 3v6" />
-                    </svg>
-                    <span className="text-xs">Condo</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className={`flex h-auto flex-col gap-1 p-3 ${propertyType === "house" ? "border-primary bg-primary/5" : "hover:border-primary hover:bg-primary/5"}`}
-                    onClick={() => setPropertyType(propertyType === "house" ? "any" : "house")}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-6 w-6 text-primary"
-                    >
-                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                      <polyline points="9 22 9 12 15 12 15 22" />
-                    </svg>
-                    <span className="text-xs">House</span>
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className={`flex h-auto flex-col gap-1 p-3 ${propertyType === "villa" ? "border-primary bg-primary/5" : "hover:border-primary hover:bg-primary/5"}`}
-                    onClick={() => setPropertyType(propertyType === "villa" ? "any" : "villa")}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-6 w-6 text-primary"
-                    >
-                      <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h1" />
-                      <path d="M17 3h1a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1" />
-                      <path d="M12 3v10" />
-                      <path d="M8 13v7" />
-                      <path d="M16 13v7" />
-                      <path d="M4 13h16" />
-                    </svg>
-                    <span className="text-xs">Villa</span>
-                  </Button>
-                </div>
-
-                <Select
-                  value={propertyType === "any" ? "bungalow" : propertyType}
-                  onValueChange={(value) => setPropertyType(value)}
-                >
-                  <SelectTrigger className="mt-3 w-full">
-                    <SelectValue placeholder="Select property type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="bungalow">Bungalow</SelectItem>
-                    <SelectItem value="apartment">Apartment</SelectItem>
-                    <SelectItem value="villa">Villa</SelectItem>
-                    <SelectItem value="townhouse">Townhouse</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="font-medium">Price Range</h3>
-                  <span className="text-sm text-muted-foreground">
-                    €{priceRange[0].toLocaleString()} - €{priceRange[1].toLocaleString()}
-                  </span>
-                </div>
-                <Slider
-                  defaultValue={[50000, 500000]}
-                  max={1000000}
-                  min={0}
-                  step={10000}
-                  value={priceRange}
-                  onValueChange={setPriceRange}
-                  className="py-4"
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="w-full md:w-1/4">
+          <Card className="p-4 sticky top-4">
+            <h2 className="text-lg font-semibold mb-4">Фильтры</h2>
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                <Input
+                  placeholder="Поиск..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
                 />
-                <div className="mt-2 flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      type="number"
-                      value={priceRange[0]}
-                      onChange={(e) => setPriceRange([Number(e.target.value), priceRange[1]])}
-                      className="pr-12"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-muted-foreground">
-                      EUR
-                    </div>
-                  </div>
-                  <div className="relative flex-1">
-                    <Input
-                      type="number"
-                      value={priceRange[1]}
-                      onChange={(e) => setPriceRange([priceRange[0], Number(e.target.value)])}
-                      className="pr-12"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-muted-foreground">
-                      EUR
-                    </div>
-                  </div>
-                </div>
               </div>
-
-              <div>
-                <h3 className="mb-4 font-medium">Bedrooms</h3>
-                <div className="flex flex-wrap gap-2">
-                  {["Any", "1+", "2+", "3+", "4+", "5+"].map((option) => (
-                    <Button
-                      key={option}
-                      variant={option === bedroomsFilter ? "default" : "outline"}
-                      size="sm"
-                      className={`flex-1 min-w-[60px] ${option === bedroomsFilter ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:border-primary hover:bg-primary/5"}`}
-                      onClick={() => setBedroomsFilter(option)}
-                    >
-                      {option}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-4 font-medium">Bathrooms</h3>
-                <div className="flex flex-wrap gap-2">
-                  {["Any", "1+", "2+", "3+", "4+"].map((option) => (
-                    <Button
-                      key={option}
-                      variant={option === bathroomsFilter ? "default" : "outline"}
-                      size="sm"
-                      className={`flex-1 min-w-[60px] ${option === bathroomsFilter ? "bg-primary text-primary-foreground hover:bg-primary/90" : "hover:border-primary hover:bg-primary/5"}`}
-                      onClick={() => setBathroomsFilter(option)}
-                    >
-                      {option}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="font-medium">Size Range</h3>
-                  <span className="text-sm text-muted-foreground">
-                    {sizeRange[0]} - {sizeRange[1]} m²
-                  </span>
-                </div>
-                <Slider
-                  defaultValue={[30, 200]}
-                  max={500}
-                  min={0}
-                  step={5}
-                  value={sizeRange}
-                  onValueChange={setSizeRange}
-                  className="py-4"
-                />
-                <div className="mt-2 flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      type="number"
-                      value={sizeRange[0]}
-                      onChange={(e) => setSizeRange([Number(e.target.value), sizeRange[1]])}
-                      className="pr-8"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-muted-foreground">
-                      m²
-                    </div>
-                  </div>
-                  <div className="relative flex-1">
-                    <Input
-                      type="number"
-                      value={sizeRange[1]}
-                      onChange={(e) => setSizeRange([sizeRange[0], Number(e.target.value)])}
-                      className="pr-8"
-                    />
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-muted-foreground">
-                      m²
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2">
-                <Button className="w-full bg-primary text-white hover:bg-primary/90" onClick={applyFilters}>
-                  <Filter className="mr-2 h-4 w-4" />
-                  Apply filters
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Content - Listings */}
-        <div className="lg:col-span-3">
-          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <h1 className="text-2xl font-bold">
-              REAL ESTATE LISTING{" "}
-              <Badge className="ml-2 bg-primary/90 hover:bg-primary">
-                {filteredProperties.length} of {properties.length}
-              </Badge>
-            </h1>
-            <div className="flex items-center gap-2">
-              <Select value={sortOption} onValueChange={setSortOption}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Sort by" />
+              <Select value={propertyType} onValueChange={setPropertyType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Тип недвижимости" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="newest">Newest first</SelectItem>
-                  <SelectItem value="price-asc">Price: Low to High</SelectItem>
-                  <SelectItem value="price-desc">Price: High to Low</SelectItem>
-                  <SelectItem value="popular">Most popular</SelectItem>
+                  <SelectItem value="any">Любой</SelectItem>
+                  <SelectItem value="house">Дом</SelectItem>
+                  <SelectItem value="apartment">Квартира</SelectItem>
+                  <SelectItem value="condo">Кондоминиум</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon">
-                <Sliders className="h-4 w-4" />
-              </Button>
-              <Button
-                className="bg-primary text-white hover:bg-primary/90"
-                onClick={() => {
-                  if (!user) {
-                    toast({
-                      title: "Authentication required",
-                      description: "Please log in to create a listing",
-                      variant: "destructive",
-                    })
-                    router.push("/login")
-                    return
-                  }
-                  setNewListingOpen(true)
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                New Listing
-              </Button>
-            </div>
-          </div>
-
-          {filteredProperties.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="rounded-full bg-primary/10 p-4">
-                <Search className="h-8 w-8 text-primary" />
-              </div>
-              <h3 className="mt-4 text-lg font-medium">No properties found</h3>
-              <p className="mt-2 text-sm text-muted-foreground">Try adjusting your search or filter criteria</p>
-              <Button className="mt-4" variant="outline" onClick={resetFilters}>
-                Reset all filters
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {filteredProperties.map((property) => (
-                <div key={property.id}>
-                  <Card className="overflow-hidden group hover:border-primary/50 hover:shadow-md transition-all">
-                    <div className="flex flex-col md:flex-row">
-                      <div className="relative h-64 w-full md:h-auto md:w-2/5">
-                        <div className="absolute left-3 top-3 rounded-md bg-black/20 backdrop-blur-sm px-2 py-1 text-xs text-white">
-                          Last viewing 90 min
-                        </div>
-                        <Image
-                          src={`/placeholder.svg?height=300&width=400`}
-                          alt={property.title}
-                          fill
-                          className="object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                        <div className="absolute top-3 right-3 flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 bg-white/90 hover:bg-white"
-                            onClick={() => toggleFavorite(property.id)}
-                          >
-                            <Heart
-                              className={`h-4 w-4 ${favorites.includes(property.id) ? "fill-primary text-primary" : "text-gray-700"}`}
-                            />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 bg-white/90 hover:bg-white">
-                            <Share2 className="h-4 w-4 text-gray-700" />
-                          </Button>
-                        </div>
-                        <div className="absolute bottom-3 right-3 flex -space-x-2">
-                          {[1, 2, 3].map((i) => (
-                            <Avatar key={i} className="h-8 w-8 border-2 border-white">
-                              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                                U{i}
-                              </AvatarFallback>
-                            </Avatar>
-                          ))}
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-primary text-xs text-white">
-                            +1
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-1 flex-col p-4">
-                        <div className="mb-2 flex items-start justify-between">
-                          <div>
-                            <Link href={`/real-estate/${property.id}`}>
-                              <h2 className="text-xl font-bold group-hover:text-primary transition-colors">
-                                {property.title}
-                              </h2>
-                            </Link>
-                            <div className="mt-1 flex items-center text-sm text-muted-foreground">
-                              <MapPin className="mr-1 h-4 w-4 text-primary" />
-                              {property.location} • {property.address}
-                            </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                              >
-                                <MoreHorizontal className="h-5 w-5" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => toggleFavorite(property.id)}>
-                                <Heart className="mr-2 h-4 w-4" />
-                                {favorites.includes(property.id) ? "Remove from favorites" : "Add to favorites"}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <MessageSquare className="mr-2 h-4 w-4" />
-                                Contact agent
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <Share2 className="mr-2 h-4 w-4" />
-                                Share listing
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem>
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  width="24"
-                                  height="24"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="mr-2 h-4 w-4"
-                                >
-                                  <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
-                                </svg>
-                                Save for later
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-
-                        <div className="mt-2 flex flex-wrap gap-4">
-                          <Badge variant="outline" className="flex items-center gap-1 bg-primary/5">
-                            <Bed className="h-3 w-3 text-primary" />
-                            {property.beds} bed
-                          </Badge>
-                          <Badge variant="outline" className="flex items-center gap-1 bg-primary/5">
-                            <Bath className="h-3 w-3 text-primary" />
-                            {property.baths} bath
-                          </Badge>
-                          <Badge variant="outline" className="flex items-center gap-1 bg-primary/5">
-                            <SquareIcon className="h-3 w-3 text-primary" />
-                            {property.size}
-                          </Badge>
-                        </div>
-
-                        <div className="mt-auto flex items-end justify-between pt-4">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-10 w-10 border-2 border-primary/10">
-                              <AvatarImage src={`/placeholder.svg?height=40&width=40`} alt={property.seller.name} />
-                              <AvatarFallback className="bg-primary/10 text-primary">
-                                {property.seller.name
-                                  .split(" ")
-                                  .map((n) => n[0])
-                                  .join("")}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium">
-                                {property.seller.name}{" "}
-                                <Badge variant="outline" className="ml-1">
-                                  seller
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span>{property.seller.phone}</span>
-                                <span>•</span>
-                                <span>{property.seller.email}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-2xl font-bold text-primary">{property.price}</div>
-                            <div className="mt-2 flex gap-2">
-                              <Button size="sm" className="bg-primary hover:bg-primary/90">
-                                <MessageSquare className="mr-2 h-4 w-4" />
-                                Contact
-                              </Button>
-                              <Button size="sm" variant="outline" asChild>
-                                <Link href={`/real-estate/${property.id}`}>View</Link>
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
+              <Select value={bedroomsFilter} onValueChange={setBedroomsFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Спальни" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Any">Любое</SelectItem>
+                  <SelectItem value="1">1+</SelectItem>
+                  <SelectItem value="2">2+</SelectItem>
+                  <SelectItem value="3">3+</SelectItem>
+                  <SelectItem value="4">4+</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={bathroomsFilter} onValueChange={setBathroomsFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Ванные" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Any">Любое</SelectItem>
+                  <SelectItem value="1">1+</SelectItem>
+                  <SelectItem value="2">2+</SelectItem>
+                  <SelectItem value="3">3+</SelectItem>
+                </SelectContent>
+              </Select>
+              <div>
+                <label className="text-sm font-medium">Цена (€)</label>
+                <Slider
+                  min={0}
+                  max={1000000}
+                  step={1000}
+                  value={priceRange}
+                  onValueChange={setPriceRange}
+                  className="mt-2"
+                />
+                <div className="flex justify-between text-sm text-gray-500 mt-1">
+                  <span>€{priceRange[0].toLocaleString()}</span>
+                  <span>€{priceRange[1]?.toLocaleString() || "∞"}</span>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {filteredProperties.length > 0 && (
-            <div className="mt-8 flex justify-center">
+              </div>
+              <div>
+                <label className="text-sm font-medium">Площадь (м²)</label>
+                <Slider
+                  min={0}
+                  max={500}
+                  step={1}
+                  value={sizeRange}
+                  onValueChange={setSizeRange}
+                  className="mt-2"
+                />
+                <div className="flex justify-between text-sm text-gray-500 mt-1">
+                  <span>{sizeRange[0]} м²</span>
+                  <span>{sizeRange[1]?.toString() || "∞"} м²</span>
+                </div>
+              </div>
+              <Select value={sortOption} onValueChange={setSortOption}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Сортировка" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Новейшие</SelectItem>
+                  <SelectItem value="price-asc">Цена: по возрастанию</SelectItem>
+                  <SelectItem value="price-desc">Цена: по убыванию</SelectItem>
+                </SelectContent>
+              </Select>
               <Button
-                variant="outline"
-                className="gap-1"
-                onClick={() =>
-                  toast({
-                    title: "Loading more properties",
-                    description: "Additional properties are being loaded",
-                  })
-                }
+                variant={showFriendsOnly ? "default" : "outline"}
+                onClick={() => setShowFriendsOnly(!showFriendsOnly)}
+                className="w-full"
               >
-                Load more properties
-                <Badge className="ml-1 bg-primary/90 hover:bg-primary">
-                  {properties.length - filteredProperties.length}
-                </Badge>
+                Только друзья
               </Button>
+            </div>
+          </Card>
+        </div>
+
+        <div className="w-full md:w-3/4">
+          {error && (
+            <p className="text-center text-red-500 mb-4">{error}</p>
+          )}
+          {isLoading ? (
+            <p className="text-center text-gray-500">Загрузка постов...</p>
+          ) : properties.length === 0 ? (
+            <p className="text-center text-gray-500">Нет доступных постов</p>
+          ) : filteredProperties.length === 0 ? (
+            <p className="text-center text-gray-500">Объявления не найдены</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {filteredProperties.map((property) => (
+                <Card key={property.id} className="overflow-hidden">
+                  <div className="relative h-48">
+                    <Image
+                      src={property.imageUrl || "/placeholder.svg"}
+                      alt={property.title || "Property"}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold">
+                      <Link href={`/real-estate/${property.id}`} className="hover:underline">
+                        {property.title || "Без названия"}
+                      </Link>
+                    </h3>
+                    <div className="text-sm text-gray-500 mb-2 flex items-center">
+                      <MapPin className="mr-1 h-4 w-4" />
+                      {property.location || "Не указано"}
+                    </div>
+                    <div className="flex flex-wrap gap-4 mb-2 text-sm">
+                      {property.bedrooms && (
+                        <span className="flex items-center">
+                          <Bed className="h-4 w-4 mr-1" />
+                          {property.bedrooms} спальни
+                        </span>
+                      )}
+                      {property.bathrooms && (
+                        <span className="flex items-center">
+                          <Bath className="h-4 w-4 mr-1" />
+                          {property.bathrooms} ванные
+                        </span>
+                      )}
+                      {property.squareMeters && (
+                        <span className="flex items-center">
+                          <SquareIcon className="h-4 w-4 mr-1" />
+                          {property.squareMeters} м²
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-lg font-bold text-blue-600 mb-2">
+                      €{property.price ? property.price.toLocaleString() : "N/A"}
+                    </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage src={property.seller.avatar || undefined} alt={property.seller.name} />
+                        <AvatarFallback>{property.seller.name[0]}</AvatarFallback>
+                      </Avatar>
+                      <Link href={`/profile/${property.authorId}`} className="text-sm hover:underline">
+                        {property.seller.name || "Аноним"}
+                      </Link>
+                    </div>
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {property.seller.skills?.length > 0 ? (
+                        property.seller.skills.map((skill, index) => (
+                          <Badge key={index} variant="secondary">
+                            {skill}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-sm text-gray-500">Навыки не указаны</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleLike(property.id)}
+                      >
+                        <Heart
+                          className={`h-4 w-4 mr-1 ${
+                            property.likes.includes(parseInt(user?.id || "0"))
+                              ? "fill-red-500 text-red-500"
+                              : ""
+                          }`}
+                        />
+                        {property.likes.length}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleCart(property.id)}
+                      >
+                        <ShoppingCart className="h-4 w-4 mr-1" />
+                        {cart.includes(property.id) ? "Удалить" : "В корзину"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openChat(property.authorId)}
+                      >
+                        <MessageSquare className="h-4 w-4 mr-1" />
+                        Чат
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      <NewListingModal open={newListingOpen} onOpenChange={setNewListingOpen} />
+      <NewListingModal
+        open={newListingOpen}
+        onOpenChange={setNewListingOpen}
+        onPostCreated={handleNewListingCreated}
+      />
+
+      <Dialog open={cartOpen} onOpenChange={setCartOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Корзина</DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            {cartItems.length > 0 ? (
+              cartItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between p-2 border rounded"
+                >
+                  <div className="flex items-center gap-3">
+                    <Image
+                      src={item.imageUrl || "/placeholder.svg"}
+                      alt={item.title}
+                      width={80}
+                      height={60}
+                      className="object-cover rounded"
+                    />
+                    <div>
+                      <Link href={`/real-estate/${item.id}`} className="text-sm font-semibold hover:underline">
+                        {item.title || "Без названия"}
+                      </Link>
+                      <p className="text-sm text-gray-500">
+                        €{item.price ? item.price.toLocaleString() : "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeFromCart(item.id)}
+                  >
+                    Удалить
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500">Корзина пуста</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
+  );
 }
