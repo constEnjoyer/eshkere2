@@ -35,7 +35,9 @@ app.use('/api/messages', messagesRouter);
 app.use('/api/users', usersRouter);
 
 // Static files
-app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
+const uploadsPath = path.join(__dirname, 'Uploads');
+console.log(`[Server] Serving static files from: ${uploadsPath}`);
+app.use('/uploads', express.static(uploadsPath));
 app.use(express.static(path.join(__dirname, '..', 'client')));
 
 // Handle 404 for API routes

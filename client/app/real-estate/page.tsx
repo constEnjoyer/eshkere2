@@ -47,6 +47,7 @@ interface Property {
   bathrooms?: number;
   squareMeters?: number;
   imageUrl?: string | null;
+  imageUrls?: string[]; // Добавлено для будущей совместимости
   createdAt: string;
   likes: number[];
   seller: Seller;
@@ -95,6 +96,7 @@ export default function RealEstatePage() {
       setIsLoading(true);
       setError(null);
       try {
+        // Получение постов
         console.log("[RealEstatePage] Fetching posts from /api/posts/feed");
         const propsRes = await fetch("http://localhost:5000/api/posts/feed", {
           credentials: "include",
@@ -106,9 +108,44 @@ export default function RealEstatePage() {
         }
         const propsData = await propsRes.json();
         console.log("[RealEstatePage] Posts fetched:", propsData);
-        setProperties(propsData || []);
-        setFilteredProperties(propsData || []);
 
+        // Проверяем, что propsData — массив
+        if (!Array.isArray(propsData)) {
+          console.error("[RealEstatePage] Expected array, got:", propsData);
+          setProperties([]);
+          setFilteredProperties([]);
+          throw new Error("Данные постов имеют некорректный формат");
+        }
+
+        // Нормализуем данные
+        const normalizedProperties = propsData.map((post: any) => ({
+          id: post.id || 0,
+          authorId: post.authorId || 0,
+          title: post.title || "Без названия",
+          description: post.description || "",
+          location: post.location || "Не указано",
+          price: post.price || 0,
+          bedrooms: post.bedrooms || undefined,
+          bathrooms: post.bathrooms || undefined,
+          squareMeters: post.squareMeters || undefined,
+          imageUrl: post.imageUrl || null,
+          imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls : post.imageUrl ? [post.imageUrl] : [], // Для совместимости
+          createdAt: post.createdAt || new Date().toISOString(),
+          likes: Array.isArray(post.likes) ? post.likes : [],
+          seller: {
+            id: post.seller?.id || 0,
+            name: post.seller?.name || "Аноним",
+            email: post.seller?.email || "",
+            phone: post.seller?.phone || "",
+            avatar: post.seller?.avatar || null,
+            skills: Array.isArray(post.seller?.skills) ? post.seller.skills : [],
+          },
+        }));
+
+        setProperties(normalizedProperties);
+        setFilteredProperties(normalizedProperties);
+
+        // Получение друзей
         console.log("[RealEstatePage] Fetching friends from /api/friends");
         const friendsRes = await fetch("http://localhost:5000/api/friends", {
           credentials: "include",
@@ -120,8 +157,16 @@ export default function RealEstatePage() {
         }
         const friendsData = await friendsRes.json();
         console.log("[RealEstatePage] Friends fetched:", friendsData);
-        setFriends(friendsData.map((f: { id: number }) => f.id) || []);
 
+        // Проверяем, что friendsData — массив
+        if (!Array.isArray(friendsData)) {
+          console.error("[RealEstatePage] Expected array for friends, got:", friendsData);
+          setFriends([]);
+        } else {
+          setFriends(friendsData.map((f: { id: number }) => f.id) || []);
+        }
+
+        // Получение корзины
         const savedCart = JSON.parse(localStorage.getItem(`cart-${userId}`) || "[]");
         console.log("[RealEstatePage] Loaded cart:", savedCart);
         setCart(savedCart);
@@ -142,10 +187,49 @@ export default function RealEstatePage() {
           const cartData = await cartRes.json();
           console.log("[RealEstatePage] Cart items fetched:", cartData);
 
+          // Проверяем, что cartData — массив
+          if (!Array.isArray(cartData)) {
+            console.error("[RealEstatePage] Expected array for cart items, got:", cartData);
+            setCartItems([]);
+            setCart([]);
+            localStorage.setItem(`cart-${userId}`, JSON.stringify([]));
+            toast({
+              title: "Ошибка корзины",
+              description: "Данные корзины имеют некорректный формат",
+              variant: "destructive",
+            });
+            return;
+          }
+
           // Фильтруем несуществующие посты
-          const validCartItems = cartData.filter((item: Property) => item.id);
+          const validCartItems = cartData
+            .filter((item: Property) => item.id)
+            .map((item: any) => ({
+              id: item.id || 0,
+              authorId: item.authorId || 0,
+              title: item.title || "Без названия",
+              description: item.description || "",
+              location: item.location || "Не указано",
+              price: item.price || 0,
+              bedrooms: item.bedrooms || undefined,
+              bathrooms: item.bathrooms || undefined,
+              squareMeters: item.squareMeters || undefined,
+              imageUrl: item.imageUrl || null,
+              imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls : item.imageUrl ? [item.imageUrl] : [],
+              createdAt: item.createdAt || new Date().toISOString(),
+              likes: Array.isArray(item.likes) ? item.likes : [],
+              seller: {
+                id: item.seller?.id || 0,
+                name: item.seller?.name || "Аноним",
+                email: item.seller?.email || "",
+                phone: item.seller?.phone || "",
+                avatar: item.seller?.avatar || null,
+                skills: Array.isArray(item.seller?.skills) ? item.seller.skills : [],
+              },
+            }));
+
           const validCartIds = validCartItems.map((item: Property) => item.id);
-          setCartItems(validCartItems || []);
+          setCartItems(validCartItems);
           if (validCartIds.length !== savedCart.length) {
             setCart(validCartIds);
             localStorage.setItem(`cart-${userId}`, JSON.stringify(validCartIds));
@@ -159,6 +243,10 @@ export default function RealEstatePage() {
       } catch (error: any) {
         console.error("[RealEstatePage] Error fetching data:", error);
         setError(error.message || "Не удалось загрузить данные");
+        setProperties([]);
+        setFilteredProperties([]);
+        setCart([]);
+        setCartItems([]);
         toast({
           title: "Ошибка",
           description: error.message || "Не удалось загрузить данные",
@@ -174,7 +262,8 @@ export default function RealEstatePage() {
 
   useEffect(() => {
     console.log("[RealEstatePage] Filtering properties, count:", properties.length);
-    if (!properties || properties.length === 0) {
+    if (!Array.isArray(properties)) {
+      console.error("[RealEstatePage] Properties is not an array:", properties);
       setFilteredProperties([]);
       return;
     }
@@ -273,13 +362,13 @@ export default function RealEstatePage() {
       }
       const updatedPost = await res.json();
       setProperties((prev) =>
-        prev.map((p) => (p.id === postId ? { ...p, likes: updatedPost.likes } : p))
+        prev.map((p) => (p.id === postId ? { ...p, likes: Array.isArray(updatedPost.likes) ? updatedPost.likes : [] } : p))
       );
       setFilteredProperties((prev) =>
-        prev.map((p) => (p.id === postId ? { ...p, likes: updatedPost.likes } : p))
+        prev.map((p) => (p.id === postId ? { ...p, likes: Array.isArray(updatedPost.likes) ? updatedPost.likes : [] } : p))
       );
       toast({
-        title: updatedPost.likes.includes(parseInt(user.id)) ? "Лайк поставлен" : "Лайк убран",
+        title: Array.isArray(updatedPost.likes) && updatedPost.likes.includes(parseInt(user.id)) ? "Лайк поставлен" : "Лайк убран",
         description: `Пост ${postId}`,
       });
     } catch (error) {
@@ -345,8 +434,21 @@ export default function RealEstatePage() {
   };
 
   const handleNewListingCreated = (newPost: Property) => {
-    setProperties((prev) => [newPost, ...prev]);
-    setFilteredProperties((prev) => [newPost, ...prev]);
+    const normalizedPost = {
+      ...newPost,
+      imageUrls: Array.isArray(newPost.imageUrls) ? newPost.imageUrls : newPost.imageUrl ? [newPost.imageUrl] : [],
+      likes: Array.isArray(newPost.likes) ? newPost.likes : [],
+      seller: {
+        id: newPost.seller?.id || 0,
+        name: newPost.seller?.name || "Аноним",
+        email: newPost.seller?.email || "",
+        phone: newPost.seller?.phone || "",
+        avatar: newPost.seller?.avatar || null,
+        skills: Array.isArray(newPost.seller?.skills) ? newPost.seller.skills : [],
+      },
+    };
+    setProperties((prev) => [normalizedPost, ...prev]);
+    setFilteredProperties((prev) => [normalizedPost, ...prev]);
     setNewListingOpen(false);
     toast({ title: "Успех", description: "Объявление создано" });
   };
@@ -472,9 +574,9 @@ export default function RealEstatePage() {
           )}
           {isLoading ? (
             <p className="text-center text-gray-500">Загрузка постов...</p>
-          ) : properties.length === 0 ? (
+          ) : !Array.isArray(properties) || properties.length === 0 ? (
             <p className="text-center text-gray-500">Нет доступных постов</p>
-          ) : filteredProperties.length === 0 ? (
+          ) : !Array.isArray(filteredProperties) || filteredProperties.length === 0 ? (
             <p className="text-center text-gray-500">Объявления не найдены</p>
           ) : (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -531,7 +633,7 @@ export default function RealEstatePage() {
                       </Link>
                     </div>
                     <div className="mb-2 flex flex-wrap gap-2">
-                      {property.seller.skills?.length > 0 ? (
+                      {Array.isArray(property.seller.skills) && property.seller.skills.length > 0 ? (
                         property.seller.skills.map((skill, index) => (
                           <Badge key={index} variant="secondary">
                             {skill}
@@ -549,12 +651,12 @@ export default function RealEstatePage() {
                       >
                         <Heart
                           className={`h-4 w-4 mr-1 ${
-                            property.likes.includes(parseInt(user?.id || "0"))
+                            Array.isArray(property.likes) && property.likes.includes(parseInt(user?.id || "0"))
                               ? "fill-red-500 text-red-500"
                               : ""
                           }`}
                         />
-                        {property.likes.length}
+                        {Array.isArray(property.likes) ? property.likes.length : 0}
                       </Button>
                       <Button
                         variant="outline"
@@ -593,7 +695,7 @@ export default function RealEstatePage() {
             <DialogTitle>Корзина</DialogTitle>
           </DialogHeader>
           <div className="mt-4 space-y-4">
-            {cartItems.length > 0 ? (
+            {Array.isArray(cartItems) && cartItems.length > 0 ? (
               cartItems.map((item) => (
                 <div
                   key={item.id}

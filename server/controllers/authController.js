@@ -1,4 +1,5 @@
-const prisma = require('../prisma/client');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 const bcrypt = require('bcrypt');
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
@@ -8,15 +9,21 @@ require('dotenv').config();
 // Генерация токена с учетом "Remember Me"
 const generateAccessToken = (id, roles, rememberMe = false) => {
     const payload = { id, roles };
-    const expiresIn = rememberMe ? '30d' : '24h'; // 30 дней если "Remember Me", иначе 24 часа
+    const expiresIn = rememberMe ? '30d' : '24h';
+    if (!process.env.SECRET_KEY) {
+        throw new Error('SECRET_KEY is not defined in environment variables');
+    }
     return jwt.sign(payload, process.env.SECRET_KEY, { expiresIn });
 };
 
-// Генерация токена и ссылки (универсальная функция для активации и сброса)
+// Генерация токена и ссылки
 const generateTokenAndLink = (userId, purpose = 'activate') => {
+    if (!process.env.SECRET_KEY) {
+        throw new Error('SECRET_KEY is not defined in environment variables');
+    }
     const token = jwt.sign({ id: userId, purpose }, process.env.SECRET_KEY, { expiresIn: '1h' });
     if (purpose === 'reset') {
-        return `http://localhost:3000/forgot-password/${token}`;
+        return `${process.env.CLIENT_URL}/forgot-password/${token}`;
     }
     return `http://localhost:5000/api/auth/activate?token=${token}`;
 };
@@ -41,9 +48,9 @@ const sendEmail = async(email, subject, text) => {
 
     try {
         await transporter.sendMail(mailOptions);
-        console.log(`${subject} email sent to ${email}`);
+        console.log(`[Email] ${subject} sent to ${email}`);
     } catch (error) {
-        console.log(`Error sending ${subject} email:`, error);
+        console.error(`[Email] Error sending ${subject}:`, error.message, error.stack);
         throw error;
     }
 };
@@ -51,45 +58,50 @@ const sendEmail = async(email, subject, text) => {
 class AuthController {
     async login(req, res) {
         try {
-            const { email, password, rememberMe } = req.body; // Добавляем rememberMe
-            console.log('Attempting login with:', email, 'Remember Me:', rememberMe);
+            const { email, password, rememberMe } = req.body;
+            console.log('[POST /api/auth/login] Attempting login:', { email, rememberMe });
+
+            if (!email || !password) {
+                console.log('[POST /api/auth/login] Missing email or password');
+                return res.status(400).json({ message: 'Email и пароль обязательны' });
+            }
 
             const user = await prisma.users.findFirst({
-                where: {
-                    email
-                },
+                where: { email },
                 include: { user_roles: { include: { roles: true } } },
             });
 
             if (!user) {
-                console.log('User not found in DB');
-                return res.status(400).json({ message: 'User not found' });
+                console.log('[POST /api/auth/login] User not found:', email);
+                return res.status(400).json({ message: 'Пользователь не найден' });
             }
 
             const validPassword = bcrypt.compareSync(password, user.password);
             if (!validPassword) {
-                return res.status(400).json({ message: 'Invalid password' });
+                console.log('[POST /api/auth/login] Invalid password for:', email);
+                return res.status(400).json({ message: 'Неверный пароль' });
             }
 
             if (!user.isActive) {
-                return res.status(400).json({ message: 'Account not activated' });
+                console.log('[POST /api/auth/login] Account not activated:', email);
+                return res.status(400).json({ message: 'Аккаунт не активирован' });
             }
 
             const roles = user.user_roles.map(ur => ur.roles.value);
-            const token = generateAccessToken(user.id, roles, rememberMe); // Передаем rememberMe
+            const token = generateAccessToken(user.id, roles, rememberMe);
 
-            // Сохранение токена в куки
             res.cookie('jwt', token, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === 'production',
-                maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // 30 дней или 24 часа
-                sameSite: 'Strict',
+                sameSite: 'lax',
+                maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
             });
 
-            return res.json({ message: 'Login successful' });
+            console.log('[POST /api/auth/login] Login successful:', { userId: user.id });
+            return res.json({ message: 'Вход выполнен успешно' });
         } catch (error) {
-            console.log('Login error:', error);
-            res.status(500).json({ message: 'Server error' });
+            console.error('[POST /api/auth/login] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка сервера', error: error.message });
         }
     }
 
@@ -97,22 +109,26 @@ class AuthController {
         try {
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
-                return res.status(400).json({ message: 'Registration error', errors });
+                console.log('[POST /api/auth/registration] Validation errors:', errors.array());
+                return res.status(400).json({ message: 'Ошибка валидации', errors: errors.array() });
             }
 
             const { username, password, email } = req.body;
+            console.log('[POST /api/auth/registration] Registering:', { username, email });
 
             const candidate = await prisma.users.findFirst({
                 where: { email },
             });
             if (candidate) {
-                return res.status(400).json({ message: 'User already exists' });
+                console.log('[POST /api/auth/registration] User already exists:', email);
+                return res.status(400).json({ message: 'Пользователь уже существует' });
             }
 
             const hashPassword = bcrypt.hashSync(password, 7);
             let userRole = await prisma.roles.findUnique({ where: { value: 'user' } });
             if (!userRole) {
                 userRole = await prisma.roles.create({ data: { value: 'user' } });
+                console.log('[POST /api/auth/registration] Created role:', userRole);
             }
 
             const newUser = await prisma.users.create({
@@ -129,25 +145,34 @@ class AuthController {
             await sendEmail(email, 'Активация аккаунта',
                 `Для завершения регистрации перейдите по ссылке: ${activationLink}`);
 
-            return res.json({ message: 'User created, activation email sent' });
+            console.log('[POST /api/auth/registration] User created:', { userId: newUser.id, email });
+            return res.json({ message: 'Пользователь создан, отправлено письмо для активации' });
         } catch (error) {
-            console.log('Registration error:', error);
-            res.status(400).json({ message: 'Registration error' });
+            console.error('[POST /api/auth/registration] Error:', error.message, error.stack);
+            res.status(400).json({ message: 'Ошибка регистрации', error: error.message });
         }
     }
 
     async activateAccount(req, res) {
         try {
             const { token } = req.query;
-            const decoded = jwt.verify(token, process.env.SECRET_KEY);
+            console.log('[GET /api/auth/activate] Activating account:', { token });
 
+            if (!process.env.SECRET_KEY) {
+                console.error('[GET /api/auth/activate] SECRET_KEY is not defined');
+                return res.status(500).json({ message: 'Ошибка конфигурации сервера' });
+            }
+
+            const decoded = jwt.verify(token, process.env.SECRET_KEY);
             if (decoded.purpose !== 'activate') {
-                return res.status(400).json({ message: 'Invalid token purpose' });
+                console.log('[GET /api/auth/activate] Invalid token purpose');
+                return res.status(400).json({ message: 'Недействительное назначение токена' });
             }
 
             const user = await prisma.users.findUnique({ where: { id: decoded.id } });
             if (!user || user.isActive) {
-                return res.status(400).json({ message: 'User not found or already activated' });
+                console.log('[GET /api/auth/activate] User not found or already activated:', decoded.id);
+                return res.status(400).json({ message: 'Пользователь не найден или уже активирован' });
             }
 
             await prisma.users.update({
@@ -155,25 +180,32 @@ class AuthController {
                 data: { isActive: true },
             });
 
-            return res.redirect("http://localhost:3000")
+            console.log('[GET /api/auth/activate] Account activated:', decoded.id);
+            return res.redirect(process.env.CLIENT_URL || "http://localhost:3000");
         } catch (error) {
-            console.log('Activation error:', error);
-            res.status(400).json({ message: 'Invalid or expired token' });
+            console.error('[GET /api/auth/activate] Error:', error.message, error.stack);
+            res.status(400).json({ message: 'Недействительный или истёкший токен' });
         }
     }
 
     async logout(req, res) {
         try {
-            res.clearCookie('jwt');
-            return res.json({ message: 'Logout successful' });
+            console.log('[POST /api/auth/logout] Logging out');
+            res.clearCookie('jwt', {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+            });
+            return res.json({ message: 'Выход выполнен успешно' });
         } catch (error) {
-            console.log('Logout error:', error);
-            res.status(500).json({ message: 'Server error' });
+            console.error('[POST /api/auth/logout] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка сервера' });
         }
     }
 
     async getUsers(req, res) {
         try {
+            console.log('[GET /api/auth/users] Fetching users');
             const users = await prisma.users.findMany({
                 include: { user_roles: { include: { roles: true } } },
             });
@@ -186,10 +218,11 @@ class AuthController {
                 isActive: user.isActive,
             }));
 
+            console.log('[GET /api/auth/users] Users fetched:', formattedUsers.length);
             res.json(formattedUsers);
         } catch (error) {
-            console.log('Get users error:', error);
-            res.status(500).json({ message: 'Error fetching users' });
+            console.error('[GET /api/auth/users] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка получения пользователей' });
         }
     }
 
@@ -197,12 +230,16 @@ class AuthController {
         try {
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
-                return res.status(400).json({ message: 'Validation error', errors });
+                console.log('[POST /api/auth/request-password-reset] Validation errors:', errors.array());
+                return res.status(400).json({ message: 'Ошибка валидации', errors: errors.array() });
             }
             const { email } = req.body;
+            console.log('[POST /api/auth/request-password-reset] Requesting password reset:', email);
+
             const user = await prisma.users.findUnique({ where: { email } });
             if (!user) {
-                return res.json({ message: 'If the email exists, a password reset link will be sent' });
+                console.log('[POST /api/auth/request-password-reset] User not found:', email);
+                return res.json({ message: 'Если email существует, ссылка для сброса пароля будет отправлена' });
             }
 
             const resetToken = jwt.sign({ id: user.id, purpose: 'reset' }, process.env.SECRET_KEY, { expiresIn: '30m' });
@@ -215,16 +252,15 @@ class AuthController {
                 },
             });
 
-            const resetLink = `http://localhost:3000/forgot-password/${resetToken}`;
-
+            const resetLink = generateTokenAndLink(user.id, 'reset');
             await sendEmail(email, 'Сброс пароля',
-                `Для сброса пароля перейдите по ссылке: ${resetLink}
-Ссылка действительна 30 минут.`);
+                `Для сброса пароля перейдите по ссылке: ${resetLink}\nСсылка действительна 30 минут.`);
 
-            return res.json({ message: 'Password reset link sent to your email' });
+            console.log('[POST /api/auth/request-password-reset] Reset link sent:', email);
+            return res.json({ message: 'Ссылка для сброса пароля отправлена на ваш email' });
         } catch (error) {
-            console.log('Request password reset error:', error);
-            res.status(500).json({ message: 'Server error' });
+            console.error('[POST /api/auth/request-password-reset] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка сервера' });
         }
     }
 
@@ -232,20 +268,24 @@ class AuthController {
         try {
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
-                return res.status(400).json({ message: 'Validation error', errors });
+                console.log('[POST /api/auth/reset-password] Validation errors:', errors.array());
+                return res.status(400).json({ message: 'Ошибка валидации', errors: errors.array() });
             }
 
             const { token, newPassword } = req.body;
+            console.log('[POST /api/auth/reset-password] Resetting password:', { token });
 
             let decoded;
             try {
                 decoded = jwt.verify(token, process.env.SECRET_KEY);
             } catch (err) {
-                return res.status(400).json({ message: 'Invalid or expired token' });
+                console.log('[POST /api/auth/reset-password] Invalid token');
+                return res.status(400).json({ message: 'Недействительный или истёкший токен' });
             }
 
             if (decoded.purpose !== 'reset') {
-                return res.status(400).json({ message: 'Invalid token purpose' });
+                console.log('[POST /api/auth/reset-password] Invalid token purpose');
+                return res.status(400).json({ message: 'Недействительное назначение токена' });
             }
 
             const resetToken = await prisma.passwordResetToken.findUnique({
@@ -253,7 +293,8 @@ class AuthController {
             });
 
             if (!resetToken || resetToken.expiresAt < new Date()) {
-                return res.status(400).json({ message: 'Invalid or expired token' });
+                console.log('[POST /api/auth/reset-password] Token expired or not found');
+                return res.status(400).json({ message: 'Недействительный или истёкший токен' });
             }
 
             const hashPassword = bcrypt.hashSync(newPassword, 7);
@@ -267,47 +308,65 @@ class AuthController {
                 where: { id: resetToken.id },
             });
 
-            return res.json({ message: 'Password successfully reset' });
+            console.log('[POST /api/auth/reset-password] Password reset for user:', resetToken.userId);
+            return res.json({ message: 'Пароль успешно сброшен' });
         } catch (error) {
-            console.log('Reset password error:', error);
-            res.status(400).json({ message: 'Invalid or expired token' });
+            console.error('[POST /api/auth/reset-password] Error:', error.message, error.stack);
+            res.status(400).json({ message: 'Недействительный или истёкший токен' });
         }
     }
 
     async verifyToken(req, res) {
         try {
             const { token } = req.body;
+            console.log('[POST /api/auth/verify] Verifying token');
             jwt.verify(token, process.env.SECRET_KEY);
-            return res.json({ message: 'Token is valid' });
+            return res.json({ message: 'Токен действителен' });
         } catch (error) {
-            return res.status(401).json({ message: 'Invalid or expired token' });
+            console.error('[POST /api/auth/verify] Error:', error.message, error.stack);
+            return res.status(401).json({ message: 'Недействительный или истёкший токен' });
         }
     }
 
     async getUser(req, res) {
         try {
-            const { userId } = req.user; // Получаем userId из authMiddleware
+            let userId = req.user.userId;
+            console.log('[GET /api/auth/user] Fetching user:', { userId, cookie: req.cookies.jwt });
+
+            userId = parseInt(userId);
+            if (isNaN(userId)) {
+                console.error('[GET /api/auth/user] Invalid userId:', req.user.userId);
+                return res.status(400).json({ message: 'Недействительный ID пользователя' });
+            }
+
             const user = await prisma.users.findUnique({
                 where: { id: userId },
                 include: { user_roles: { include: { roles: true } } },
             });
 
             if (!user) {
-                return res.status(404).json({ message: "User not found" });
+                console.log('[GET /api/auth/user] User not found:', userId);
+                return res.status(404).json({ message: 'Пользователь не найден' });
             }
 
             const formattedUser = {
-                id: user.id,
+                id: user.id.toString(),
                 username: user.username,
                 email: user.email,
                 roles: user.user_roles.map(ur => ur.roles.value),
                 isActive: user.isActive,
+                profilePicture: user.profilePicture || null,
+                bio: user.bio || '',
+                phone: user.phone || '',
+                location: user.location || '',
+                age: user.age || null,
             };
 
+            console.log('[GET /api/auth/user] User fetched:', formattedUser);
             return res.json(formattedUser);
         } catch (error) {
-            console.error("Get user error:", error);
-            res.status(500).json({ message: "Server error" });
+            console.error('[GET /api/auth/user] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка сервера', error: error.message });
         }
     }
 }

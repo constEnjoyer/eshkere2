@@ -1,26 +1,21 @@
-"use client"
+"use client";
 
-import { useAuth } from "@/context/auth-context"
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useAuth } from "@/context/auth-context";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth()
-  const router = useRouter()
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push("/login")
+      router.push("/login");
     }
-  }, [user, isLoading, router])
+  }, [user, isLoading, router]);
 
-  if (isLoading) {
-    return <div>Loading...</div> // Можно заменить на красивый спиннер
-  }
+  if (isLoading) return <div className="container mx-auto py-6">Loading...</div>;
+  if (!user) return null;
 
-  if (!user) {
-    return null // Рендеринг прерывается, так как редирект уже выполнен
-  }
-
-  return <>{children}</>
+  return <>{children}</>;
 }

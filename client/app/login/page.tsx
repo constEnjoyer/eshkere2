@@ -44,7 +44,7 @@ export default function LoginPage() {
           title: "Login successful",
           description: "Welcome back to RealEstatePro!",
         })
-        router.push("/")
+        router.push("/profile")
       } else {
         setError(result.message)
       }

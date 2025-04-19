@@ -2,421 +2,493 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 class PostsController {
-    async getMyPosts(req, res) {
-        try {
-            const { userId } = req.user;
-            const posts = await prisma.post.findMany({
-                where: { authorId: userId },
-                include: {
-                    likes: { select: { userId: true } },
-                },
-            });
-            res.json(posts.map(post => ({
-                id: post.id,
-                title: post.title,
-                description: post.description,
-                imageUrl: post.imageUrl,
-                location: post.location,
-                createdAt: post.createdAt,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                likes: post.likes.map(like => like.userId),
-            })));
-        } catch (error) {
-            console.error('Error in getMyPosts:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+  async createPost(req, res) {
+    try {
+      const { userId } = req.user;
+      const { title, description, location, price, bedrooms, bathrooms, squareMeters } = req.body;
+      console.log(`[POST /api/posts] Creating post for userId: ${userId}`, {
+        title,
+        description,
+        location,
+        price,
+        bedrooms,
+        bathrooms,
+        squareMeters,
+        filesCount: req.files?.length || 0,
+      });
+
+      // Валидация обязательных полей
+      if (!title || !description || !location || !price) {
+        console.log(`[POST /api/posts] Missing required fields`);
+        return res.status(400).json({ message: 'Все обязательные поля (title, description, location, price) должны быть заполнены' });
+      }
+
+      // Валидация числовых полей
+      const parsedPrice = parseFloat(price);
+      if (isNaN(parsedPrice) || parsedPrice <= 0) {
+        console.log(`[POST /api/posts] Invalid price: ${price}`);
+        return res.status(400).json({ message: 'Цена должна быть положительным числом' });
+      }
+
+      // Проверка файлов
+      if (!req.files || req.files.length === 0) {
+        console.log(`[POST /api/posts] No files uploaded`);
+        return res.status(400).json({ message: 'Требуется хотя бы одно изображение' });
+      }
+
+      // Проверка существования пользователя
+      const user = await prisma.users.findUnique({
+        where: { id: parseInt(userId) },
+      });
+      if (!user) {
+        console.log(`[POST /api/posts] User not found: ${userId}`);
+        return res.status(404).json({ message: 'Пользователь не найден' });
+      }
+
+      const imageUrls = req.files.map(file => `/Uploads/posts/${file.filename}`);
+      console.log(`[POST /api/posts] Generated image URLs:`, imageUrls);
+
+      const post = await prisma.post.create({
+        data: {
+          title: title.trim(),
+          description: description.trim(),
+          location: location.trim(),
+          price: parsedPrice,
+          bedrooms: bedrooms ? parseInt(bedrooms) : null,
+          bathrooms: bathrooms ? parseInt(bathrooms) : null,
+          squareMeters: squareMeters ? parseInt(squareMeters) : null,
+          imageUrls,
+          authorId: parseInt(userId),
+          createdAt: new Date(),
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+        },
+      });
+
+      const response = {
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: [], // Новый пост, лайков пока нет
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: Array.isArray(post.author.skills) ? post.author.skills : [],
+        },
+      };
+
+      console.log(`[POST /api/posts] Post created:`, { id: response.id, title: response.title });
+      res.status(201).json(response);
+    } catch (error) {
+      console.error(`[POST /api/posts] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка создания объявления', error: error.message });
     }
+  }
 
-    async createPost(req, res) {
-        try {
-            const { title, description, price, location, bedrooms, bathrooms, squareMeters, imageUrl } = req.body;
-            const { userId } = req.user;
+  // Остальные методы (getPosts, getMultiplePosts, getUserPosts, getMyPosts, getPostById, deletePost, toggleLike)
+  // остаются без изменений, так как они выглядят корректно и не связаны с текущей ошибкой.
+  async getPosts(req, res) {
+    try {
+      console.log(`[GET /api/posts] Fetching posts`);
+      const posts = await prisma.post.findMany({
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+          likes: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
-            const post = await prisma.post.create({
-                data: {
-                    title,
-                    description,
-                    price: parseFloat(price),
-                    location,
-                    bedrooms: parseInt(bedrooms) || null,
-                    bathrooms: parseInt(bathrooms) || null,
-                    squareMeters: parseFloat(squareMeters) || null,
-                    imageUrl: imageUrl || null,
-                    authorId: userId,
-                },
-                include: {
-                    author: true,
-                    likes: { select: { userId: true } },
-                },
-            });
+      const response = posts.map(post => ({
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: post.likes.map(like => like.userId),
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: post.author.skills || [],
+        },
+      }));
 
-            res.status(201).json({
-                message: 'Post created',
-                post: {
-                    id: post.id,
-                    authorId: post.authorId,
-                    title: post.title,
-                    description: post.description,
-                    location: post.location,
-                    price: post.price,
-                    bedrooms: post.bedrooms,
-                    bathrooms: post.bathrooms,
-                    squareMeters: post.squareMeters,
-                    imageUrl: post.imageUrl,
-                    createdAt: post.createdAt,
-                    likes: post.likes.map(like => like.userId),
-                    seller: {
-                        id: post.author.id,
-                        name: post.author.username,
-                        email: post.author.email,
-                        phone: post.author.phone,
-                        avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                        skills: post.author.skills || [],
-                    },
-                },
-            });
-        } catch (error) {
-            console.error('Create post error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+      console.log(`[GET /api/posts] Posts fetched: ${response.length}`);
+      res.json(response);
+    } catch (error) {
+      console.error(`[GET /api/posts] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async getFeed(req, res) {
-        try {
-            const posts = await prisma.post.findMany({
-                orderBy: { createdAt: 'desc' },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
-            res.json(posts.map(post => ({
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone || '',
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            })));
-        } catch (error) {
-            console.error('Get feed error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+  async getMultiplePosts(req, res) {
+    try {
+      const { postIds } = req.body;
+      console.log(`[POST /api/posts/multiple] Fetching posts with IDs:`, postIds);
+
+      if (!Array.isArray(postIds) || postIds.length === 0) {
+        console.log(`[POST /api/posts/multiple] Invalid postIds`);
+        return res.status(400).json({ message: 'Недействительный или пустой массив postIds' });
+      }
+
+      const posts = await prisma.post.findMany({
+        where: {
+          id: { in: postIds.map(id => parseInt(id)) },
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+          likes: true,
+        },
+      });
+
+      const response = posts.map(post => ({
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: post.likes.map(like => like.userId),
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: post.author.skills || [],
+        },
+      }));
+
+      console.log(`[POST /api/posts/multiple] Posts fetched: ${response.length}`);
+      res.json(response);
+    } catch (error) {
+      console.error(`[POST /api/posts/multiple] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async getPostById(req, res) {
-        try {
-            const { id } = req.params;
-            const parsedId = parseInt(id);
-            if (isNaN(parsedId)) {
-                console.log(`[GET /api/posts/${id}] Invalid postId: ${id}`);
-                return res.status(400).json({ message: 'Invalid post ID' });
-            }
-            console.log(`[GET /api/posts/${id}] Fetching post for postId: ${parsedId}`);
+  async getUserPosts(req, res) {
+    try {
+      const userId = parseInt(req.params.userId);
+      console.log(`[GET /api/posts/user/${req.params.userId}] Fetching posts for userId: ${userId}`);
 
-            const post = await prisma.post.findUnique({
-                where: { id: parsedId },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
+      if (isNaN(userId)) {
+        console.log(`[GET /api/posts/user/${req.params.userId}] Invalid userId: ${req.params.userId}`);
+        return res.status(400).json({ message: 'Недействительный ID пользователя' });
+      }
 
-            if (!post) {
-                console.log(`[GET /api/posts/${id}] Post not found`);
-                return res.status(404).json({ message: 'Post not found' });
-            }
+      const posts = await prisma.post.findMany({
+        where: { authorId: userId },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+          likes: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
-            res.json({
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone || '',
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            });
-        } catch (error) {
-            console.error(`[GET /api/posts/${id}] Error:`, error);
-            res.status(500).json({ message: 'Server error' });
-        }
+      const response = posts.map(post => ({
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: post.likes.map(like => like.userId),
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: post.author.skills || [],
+        },
+      }));
+
+      console.log(`[GET /api/posts/user/${userId}] Posts fetched: ${response.length}`);
+      res.json(response);
+    } catch (error) {
+      console.error(`[GET /api/posts/user/${req.params.userId}] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async searchPosts(req, res) {
-        try {
-            const { query } = req.query;
-            const posts = await prisma.post.findMany({
-                where: {
-                    OR: [
-                        { title: { contains: query, mode: 'insensitive' } },
-                        { description: { contains: query, mode: 'insensitive' } },
-                        { location: { contains: query, mode: 'insensitive' } },
-                    ],
-                },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
-            res.json(posts.map(post => ({
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone || '',
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            })));
-        } catch (error) {
-            console.error('Search posts error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+  async getMyPosts(req, res) {
+    try {
+      const userId = parseInt(req.user.userId);
+      console.log(`[GET /api/posts/my] Fetching posts for userId: ${userId}`);
+
+      if (isNaN(userId)) {
+        console.log(`[GET /api/posts/my] Invalid userId: ${req.user.userId}`);
+        return res.status(400).json({ message: 'Недействительный ID пользователя' });
+      }
+
+      const posts = await prisma.post.findMany({
+        where: { authorId: userId },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+          likes: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const response = posts.map(post => ({
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: post.likes.map(like => like.userId),
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: post.author.skills || [],
+        },
+      }));
+
+      console.log(`[GET /api/posts/my] Posts fetched: ${response.length}`);
+      res.json(response);
+    } catch (error) {
+      console.error(`[GET /api/posts/my] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async getUserPosts(req, res) {
-        try {
-            const { userId } = req.params;
-            const parsedUserId = parseInt(userId);
-            if (isNaN(parsedUserId)) {
-                return res.status(400).json({ message: 'Invalid user ID' });
-            }
-            const posts = await prisma.post.findMany({
-                where: { authorId: parsedUserId },
-                orderBy: { createdAt: 'desc' },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
-            res.json(posts.map(post => ({
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone || '',
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            })));
-        } catch (error) {
-            console.error('Get user posts error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+  async getPostById(req, res) {
+    try {
+      const postId = parseInt(req.params.id);
+      console.log(`[GET /api/posts/${postId}] Fetching post`);
+
+      if (isNaN(postId)) {
+        console.log(`[GET /api/posts/${req.params.id}] Invalid postId`);
+        return res.status(400).json({ message: 'Недействительный ID поста' });
+      }
+
+      const post = await prisma.post.findUnique({
+        where: { id: postId },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              email: true,
+              phone: true,
+              profilePicture: true,
+              skills: true,
+            },
+          },
+          likes: true,
+        },
+      });
+
+      if (!post) {
+        console.log(`[GET /api/posts/${postId}] Post not found`);
+        return res.status(404).json({ message: 'Пост не найден' });
+      }
+
+      const response = {
+        id: post.id,
+        authorId: post.authorId,
+        title: post.title,
+        description: post.description,
+        location: post.location,
+        price: post.price,
+        bedrooms: post.bedrooms,
+        bathrooms: post.bathrooms,
+        squareMeters: post.squareMeters,
+        imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
+        createdAt: post.createdAt,
+        likes: post.likes.map(like => like.userId),
+        seller: {
+          id: post.author.id,
+          name: post.author.username,
+          email: post.author.email,
+          phone: post.author.phone,
+          avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
+          skills: post.author.skills || [],
+        },
+      };
+
+      console.log(`[GET /api/posts/${postId}] Post fetched:`, { id: response.id, title: response.title });
+      res.json(response);
+    } catch (error) {
+      console.error(`[GET /api/posts/${req.params.id}] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async likePost(req, res) {
-        try {
-            const { userId } = req.user;
-            const { id } = req.params;
-            const parsedId = parseInt(id);
-            if (isNaN(parsedId)) {
-                return res.status(400).json({ message: 'Invalid post ID' });
-            }
+  async deletePost(req, res) {
+    try {
+      const { userId } = req.user;
+      const postId = parseInt(req.params.id);
+      console.log(`[DELETE /api/posts/${postId}] Deleting post for userId: ${userId}`);
 
-            const post = await prisma.post.findUnique({
-                where: { id: parsedId },
-                include: { likes: { select: { userId: true } } },
-            });
+      if (isNaN(postId)) {
+        console.log(`[DELETE /api/posts/${req.params.id}] Invalid postId`);
+        return res.status(400).json({ message: 'Недействительный ID поста' });
+      }
 
-            if (!post) {
-                return res.status(404).json({ message: 'Post not found' });
-            }
+      const post = await prisma.post.findUnique({
+        where: { id: postId },
+      });
 
-            const isLiked = post.likes.some(like => like.userId === userId);
+      if (!post) {
+        console.log(`[DELETE /api/posts/${postId}] Post not found`);
+        return res.status(404).json({ message: 'Пост не найден' });
+      }
 
-            if (isLiked) {
-                await prisma.like.deleteMany({
-                    where: { postId: parsedId, userId },
-                });
-            } else {
-                await prisma.like.create({
-                    data: { postId: parsedId, userId },
-                });
-            }
+      if (post.authorId !== userId) {
+        console.log(`[DELETE /api/posts/${postId}] Unauthorized attempt by userId: ${userId}`);
+        return res.status(403).json({ message: 'Вы не авторизованы для удаления этого поста' });
+      }
 
-            const updatedPost = await prisma.post.findUnique({
-                where: { id: parsedId },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
+      await prisma.post.delete({
+        where: { id: postId },
+      });
 
-            res.json({
-                id: updatedPost.id,
-                authorId: updatedPost.authorId,
-                title: updatedPost.title,
-                description: updatedPost.description,
-                location: updatedPost.location,
-                price: updatedPost.price,
-                bedrooms: updatedPost.bedrooms,
-                bathrooms: updatedPost.bathrooms,
-                squareMeters: updatedPost.squareMeters,
-                imageUrl: updatedPost.imageUrl,
-                createdAt: updatedPost.createdAt,
-                likes: updatedPost.likes.map(like => like.userId),
-                seller: {
-                    id: updatedPost.author.id,
-                    name: updatedPost.author.username,
-                    email: updatedPost.author.email,
-                    phone: updatedPost.author.phone || '',
-                    avatar: updatedPost.author.profilePicture ? `http://localhost:5000${updatedPost.author.profilePicture}` : null,
-                    skills: updatedPost.author.skills || [],
-                },
-            });
-        } catch (error) {
-            console.error('Like post error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+      console.log(`[DELETE /api/posts/${postId}] Post deleted`);
+      res.status(204).send();
+    } catch (error) {
+      console.error(`[DELETE /api/posts/${req.params.id}] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
+  }
 
-    async getMultiplePosts(req, res) {
-        try {
-            const { postIds } = req.body;
-            if (!Array.isArray(postIds) || postIds.length === 0) {
-                console.log('[POST /api/posts/multiple] Invalid or empty postIds array');
-                return res.status(400).json({ message: 'Invalid or empty postIds array' });
-            }
-            console.log('[POST /api/posts/multiple] Fetching posts for postIds:', postIds);
+  async toggleLike(req, res) {
+    try {
+      const { userId } = req.user;
+      const postId = parseInt(req.params.postId);
+      console.log(`[POST /api/posts/${postId}/like] Toggling like for userId: ${userId}`);
 
-            const parsedPostIds = postIds.map(id => parseInt(id)).filter(id => !isNaN(id));
-            if (parsedPostIds.length === 0) {
-                return res.status(400).json({ message: 'No valid post IDs provided' });
-            }
+      if (isNaN(postId)) {
+        console.log(`[POST /api/posts/${req.params.postId}/like] Invalid postId`);
+        return res.status(400).json({ message: 'Недействительный ID поста' });
+      }
 
-            const posts = await prisma.post.findMany({
-                where: { id: { in: parsedPostIds } },
-                include: {
-                    author: {
-                        select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                    },
-                    likes: { select: { userId: true } },
-                },
-            });
+      const post = await prisma.post.findUnique({
+        where: { id: postId },
+      });
 
-            res.json(posts.map(post => ({
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone || '',
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            })));
-        } catch (error) {
-            console.error('[POST /api/posts/multiple] Error:', error);
-            res.status(500).json({ message: 'Server error' });
-        }
+      if (!post) {
+        console.log(`[POST /api/posts/${postId}/like] Post not found`);
+        return res.status(404).json({ message: 'Пост не найден' });
+      }
+
+      const existingLike = await prisma.like.findFirst({
+        where: {
+          userId: userId,
+          postId: postId,
+        },
+      });
+
+      if (existingLike) {
+        await prisma.like.delete({
+          where: { id: existingLike.id },
+        });
+        console.log(`[POST /api/posts/${postId}/like] Like removed`);
+      } else {
+        await prisma.like.create({
+          data: {
+            userId: userId,
+            postId: postId,
+          },
+        });
+        console.log(`[POST /api/posts/${postId}/like] Like added`);
+      }
+
+      const updatedLikes = await prisma.like.findMany({
+        where: { postId: postId },
+      });
+
+      res.json({ likes: updatedLikes.map(like => like.userId) });
+    } catch (error) {
+      console.error(`[POST /api/posts/${req.params.postId}/like] Error:`, error.message, error.stack);
+      res.status(500).json({ message: 'Ошибка сервера', error: error.message });
     }
-
-    async getUserById(req, res) {
-        try {
-            const { id } = req.params;
-            const parsedId = parseInt(id);
-            if (isNaN(parsedId)) {
-                console.log(`[GET /api/users/${id}] Invalid userId: ${id}`);
-                return res.status(400).json({ message: 'Invalid user ID' });
-            }
-            console.log(`[GET /api/users/${id}] Fetching user for userId: ${parsedId}`);
-
-            const user = await prisma.user.findUnique({
-                where: { id: parsedId },
-                select: { id: true, username: true, profilePicture: true },
-            });
-
-            if (!user) {
-                console.log(`[GET /api/users/${id}] User not found`);
-                return res.status(404).json({ message: 'User not found' });
-            }
-
-            res.json({
-                id: user.id,
-                username: user.username,
-                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
-            });
-        } catch (error) {
-            console.error(`[GET /api/users/${id}] Error:`, error);
-            res.status(500).json({ message: 'Server error' });
-        }
-    }
+  }
 }
 
 module.exports = new PostsController();

@@ -1,32 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { useAuth } from "@/context/auth-context";
 
 interface Seller {
-  id: number;
+  id: string;
   name: string;
   email: string;
-  phone: string;
+  phone: string | null;
   avatar?: string | null;
   skills: string[];
 }
 
 interface Property {
   id: number;
-  authorId: number;
+  authorId: string;
   title: string;
   description: string;
   location: string;
@@ -34,9 +27,9 @@ interface Property {
   bedrooms?: number;
   bathrooms?: number;
   squareMeters?: number;
-  imageUrl?: string | null;
+  imageUrls: string[];
   createdAt: string;
-  likes: number[];
+  likes: string[];
   seller: Seller;
 }
 
@@ -46,253 +39,324 @@ interface NewListingModalProps {
   onPostCreated?: (post: Property) => void;
 }
 
-export function NewListingModal({ open, onOpenChange, onPostCreated }: NewListingModalProps) {
+export default function NewListingModal({ open, onOpenChange, onPostCreated }: NewListingModalProps) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [price, setPrice] = useState("");
+  const [bedrooms, setBedrooms] = useState("");
+  const [bathrooms, setBathrooms] = useState("");
+  const [squareMeters, setSquareMeters] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const { toast } = useToast();
-  const { user } = useAuth();
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    location: "",
-    price: "",
-    bedrooms: "",
-    bathrooms: "",
-    squareMeters: "",
-    imageUrl: "",
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const validateForm = () => {
+    const newErrors: { [key: string]: string } = {};
+
+    if (!title.trim()) newErrors.title = "Название обязательно";
+    if (!description.trim()) newErrors.description = "Описание обязательно";
+    if (!location.trim()) newErrors.location = "Местоположение обязательно";
+    if (!price || isNaN(Number(price)) || Number(price) <= 0)
+      newErrors.price = "Введите корректную цену";
+    if (files.length === 0) newErrors.images = "Требуется хотя бы одно изображение";
+    if (files.length > 10) newErrors.images = "Максимум 10 изображений";
+    if (bedrooms && (isNaN(Number(bedrooms)) || Number(bedrooms) < 0))
+      newErrors.bedrooms = "Введите корректное количество спален";
+    if (bathrooms && (isNaN(Number(bathrooms)) || Number(bathrooms) < 0))
+      newErrors.bathrooms = "Введите корректное количество ванных комнат";
+    if (squareMeters && (isNaN(Number(squareMeters)) || Number(squareMeters) <= 0))
+      newErrors.squareMeters = "Введите корректную площадь";
+
+    setErrors(newErrors);
+    console.log("[NewListingModal] Validation errors:", newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!user) {
-      toast({
-        title: "Требуется авторизация",
-        description: "Пожалуйста, войдите, чтобы создать объявление",
-        variant: "destructive",
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files).filter((file) => {
+        if (!file.type.startsWith("image/")) {
+          toast({
+            title: "Ошибка",
+            description: `Файл ${file.name} не является изображением`,
+            variant: "destructive",
+          });
+          return false;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          toast({
+            title: "Ошибка",
+            description: `Файл ${file.name} превышает 5 МБ`,
+            variant: "destructive",
+          });
+          return false;
+        }
+        return true;
       });
-      onOpenChange(false);
-      return;
+
+      console.log(
+        "[NewListingModal] Selected files:",
+        newFiles.map((f) => ({ name: f.name, size: f.size }))
+      );
+
+      setFiles((prev) => {
+        const updatedFiles = [...prev, ...newFiles].slice(0, 10);
+        console.log(
+          "[NewListingModal] Updated files:",
+          updatedFiles.map((f) => f.name)
+        );
+        return updatedFiles;
+      });
+
+      setErrors((prev) => {
+        const { images, ...rest } = prev;
+        return rest;
+      });
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
+  };
 
-    const data = {
-      title: formData.title,
-      description: formData.description,
-      location: formData.location,
-      price: parseFloat(formData.price) || 0,
-      bedrooms: formData.bedrooms ? parseInt(formData.bedrooms) : undefined,
-      bathrooms: formData.bathrooms ? parseInt(formData.bathrooms) : undefined,
-      squareMeters: formData.squareMeters ? parseInt(formData.squareMeters) : undefined,
-      imageUrl: formData.imageUrl || undefined,
-    };
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    console.log("[NewListingModal] Removed file at index:", index);
+  };
 
-    if (!data.title || !data.description || !data.location || !data.price) {
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setLocation("");
+    setPrice("");
+    setBedrooms("");
+    setBathrooms("");
+    setSquareMeters("");
+    setFiles([]);
+    setErrors({});
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) {
+      console.log("[NewListingModal] Form validation failed:", errors);
       toast({
         title: "Ошибка",
-        description: "Заполните все обязательные поля (название, описание, местоположение, цена)",
+        description: "Пожалуйста, исправьте ошибки в форме",
         variant: "destructive",
       });
       return;
     }
 
-    setIsSubmitting(true);
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("description", description);
+    formData.append("location", location);
+    formData.append("price", price);
+    if (bedrooms) formData.append("bedrooms", bedrooms);
+    if (bathrooms) formData.append("bathrooms", bathrooms);
+    if (squareMeters) formData.append("squareMeters", squareMeters);
+
+    files.forEach((file, index) => {
+      formData.append("images", file);
+      console.log(`[NewListingModal] Adding file ${index + 1}: ${file.name}, size: ${file.size}`);
+    });
+
     try {
-      console.log("[NewListingModal] Sending POST /api/posts:", JSON.stringify(data, null, 2));
+      console.log("[NewListingModal] Sending request to http://localhost:5000/api/posts");
       const response = await fetch("http://localhost:5000/api/posts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        body: formData,
         credentials: "include",
-        body: JSON.stringify(data),
       });
 
-      console.log("[NewListingModal] Response status:", response.status);
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error("[NewListingModal] Error response:", errorData);
-        throw new Error(errorData.message || `Failed to create post: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error("[NewListingModal] Post creation failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          errorData,
+        });
+        if (response.status === 401) {
+          throw new Error("Требуется авторизация. Пожалуйста, войдите в систему.");
+        }
+        if (response.status === 413) {
+          throw new Error("Слишком большой размер файлов. Уменьшите размер изображений.");
+        }
+        throw new Error(errorData.message || `Ошибка сервера: ${response.status}`);
       }
 
-      const responseData = await response.json();
-      const newPost: Property = {
-        ...responseData.post,
-        likes: [],
-        createdAt: new Date().toISOString(),
-        seller: {
-          id: user.id,
-          name: user.username || "Unknown",
-          email: user.email || "",
-          phone: user.phone || "",
-          avatar: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
-          skills: user.skills || [],
-        },
-      };
-      console.log("[NewListingModal] Post created:", JSON.stringify(newPost, null, 2));
+      const data: Property = await response.json();
+      console.log("[NewListingModal] Post created:", {
+        id: data.id,
+        title: data.title,
+        imageUrls: data.imageUrls,
+      });
 
       toast({
         title: "Успех",
         description: "Объявление успешно создано",
       });
 
-      if (onPostCreated) {
-        console.log("[NewListingModal] Calling onPostCreated with:", JSON.stringify(newPost, null, 2));
-        onPostCreated(newPost);
-      } else {
-        console.warn("[NewListingModal] onPostCreated is not provided");
-      }
-
-      setFormData({
-        title: "",
-        description: "",
-        location: "",
-        price: "",
-        bedrooms: "",
-        bathrooms: "",
-        squareMeters: "",
-        imageUrl: "",
-      });
+      resetForm();
       onOpenChange(false);
-    } catch (error) {
-      console.error("[NewListingModal] Error creating post:", error);
+      if (onPostCreated) onPostCreated(data);
+    } catch (error: any) {
+      console.error("[NewListingModal] Error:", error.message, error.stack);
+      let errorMessage = "Не удалось создать объявление";
+      if (error.message.includes("Failed to fetch")) {
+        errorMessage = "Не удалось подключиться к серверу. Проверьте, запущен ли сервер на localhost:5000.";
+      } else if (error.message.includes("Требуется авторизация")) {
+        errorMessage = error.message;
+      } else if (error.message.includes("Слишком большой размер")) {
+        errorMessage = error.message;
+      }
       toast({
         title: "Ошибка",
-        description: error instanceof Error ? error.message : "Не удалось создать объявление",
+        description: errorMessage,
         variant: "destructive",
       });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+    <Dialog open={open} onOpenChange={(isOpen) => {
+      if (!isOpen) resetForm();
+      onOpenChange(isOpen);
+    }}>
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Создать новое объявление</DialogTitle>
+          <DialogTitle>Новое объявление</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="title" className="text-right">
-              Название
-            </Label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="title">Название</Label>
             <Input
               id="title"
-              name="title"
-              value={formData.title}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="Например, Уютная квартира в центре"
-              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Название объявления"
             />
+            {errors.title && <p className="text-destructive text-sm">{errors.title}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="description" className="text-right">
-              Описание
-            </Label>
+          <div>
+            <Label htmlFor="description">Описание</Label>
             <Textarea
               id="description"
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              className="col-span-3"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Опишите недвижимость"
-              required
+              rows={4}
             />
+            {errors.description && <p className="text-destructive text-sm">{errors.description}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="location" className="text-right">
-              Местоположение
-            </Label>
+          <div>
+            <Label htmlFor="location">Местоположение</Label>
             <Input
               id="location"
-              name="location"
-              value={formData.location}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="Например, Москва, ул. Ленина"
-              required
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Город, адрес"
             />
+            {errors.location && <p className="text-destructive text-sm">{errors.location}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="price" className="text-right">
-              Цена (€)
-            </Label>
+          <div>
+            <Label htmlFor="price">Цена (€)</Label>
             <Input
               id="price"
-              name="price"
               type="number"
-              value={formData.price}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="500000"
-              required
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="Цена"
+              min="0"
             />
+            {errors.price && <p className="text-destructive text-sm">{errors.price}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="bedrooms" className="text-right">
-              Спальни
-            </Label>
+          <div>
+            <Label htmlFor="bedrooms">Спальни</Label>
             <Input
               id="bedrooms"
-              name="bedrooms"
               type="number"
-              value={formData.bedrooms}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="2"
+              value={bedrooms}
+              onChange={(e) => setBedrooms(e.target.value)}
+              placeholder="Количество спален"
+              min="0"
             />
+            {errors.bedrooms && <p className="text-destructive text-sm">{errors.bedrooms}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="bathrooms" className="text-right">
-              Ванные
-            </Label>
+          <div>
+            <Label htmlFor="bathrooms">Ванные комнаты</Label>
             <Input
               id="bathrooms"
-              name="bathrooms"
               type="number"
-              value={formData.bathrooms}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="1"
+              value={bathrooms}
+              onChange={(e) => setBathrooms(e.target.value)}
+              placeholder="Количество ванных комнат"
+              min="0"
             />
+            {errors.bathrooms && <p className="text-destructive text-sm">{errors.bathrooms}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="squareMeters" className="text-right">
-              Площадь (м²)
-            </Label>
+          <div>
+            <Label htmlFor="squareMeters">Площадь (м²)</Label>
             <Input
               id="squareMeters"
-              name="squareMeters"
               type="number"
-              value={formData.squareMeters}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="100"
+              value={squareMeters}
+              onChange={(e) => setSquareMeters(e.target.value)}
+              placeholder="Площадь"
+              min="0"
             />
+            {errors.squareMeters && <p className="text-destructive text-sm">{errors.squareMeters}</p>}
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="imageUrl" className="text-right">
-              URL изображения
-            </Label>
+          <div>
+            <Label htmlFor="images">Изображения (макс. 10)</Label>
             <Input
-              id="imageUrl"
-              name="imageUrl"
-              value={formData.imageUrl}
-              onChange={handleChange}
-              className="col-span-3"
-              placeholder="https://example.com/image.jpg"
+              id="images"
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={handleFileChange}
+              ref={fileInputRef}
             />
+            {files.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {files.map((file, index) => (
+                  <li key={index} className="flex items-center gap-2 text-sm text-gray-600">
+                    {file.name}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeFile(index)}
+                      className="text-destructive"
+                    >
+                      Удалить
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {errors.images && <p className="text-destructive text-sm">{errors.images}</p>}
           </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Отмена
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Создание..." : "Создать"}
-          </Button>
-        </DialogFooter>
+          <div className="sticky bottom-0 bg-white py-4 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                console.log("[NewListingModal] Closing modal");
+                onOpenChange(false);
+              }}
+            >
+              Отмена
+            </Button>
+            <Button type="submit">Создать</Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );

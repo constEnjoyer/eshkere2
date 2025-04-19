@@ -80,7 +80,7 @@ model Post {
   id           Int      @id @default(autoincrement())
   title        String
   description  String
-  imageUrl     String?
+  imageUrls    String[] @default([])
   bedrooms     Int?
   bathrooms    Int?
   squareMeters Int?

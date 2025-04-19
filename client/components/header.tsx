@@ -1,48 +1,46 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { useState } from "react"
-import { Bell, Menu, Moon, Plus, Search, Sun } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
+import { Bell, Menu, Moon, Plus, Search, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
-import { useEffect } from "react"
-import { useTheme } from "next-themes"
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet"
-import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/use-toast"
-import { NewListingModal } from "./new-listing-modal"
-import { useAuth } from "@/context/auth-context"
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { useToast } from "@/components/ui/use-toast";
+import NewListingModal from "@/components/new-listing-modal";
+import { useAuth } from "@/context/auth-context";
 
 export default function Header() {
-  const pathname = usePathname()
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = useState(false)
-  const [isScrolled, setIsScrolled] = useState(false)
-  const { toast } = useToast()
-  const [newListingOpen, setNewListingOpen] = useState(false)
-  const { user, logout } = useAuth()
+  const pathname = usePathname();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const { toast } = useToast();
+  const [newListingOpen, setNewListingOpen] = useState(false);
+  const { user, logout } = useAuth();
 
-  console.log("User in Header:", user)
+  console.log("[Header] User state:", {
+    user: user ? { id: user.id, username: user.username } : null,
+  });
 
   useEffect(() => {
-    setMounted(true)
-
+    setMounted(true);
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10)
-    }
-
-    window.addEventListener("scroll", handleScroll)
-    return () => window.removeEventListener("scroll", handleScroll)
-  }, [])
+      setIsScrolled(window.scrollY > 10);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const allNavItems = [
     { name: "TRUSTED NETWORK PARTNER", href: "/", className: "font-bold hidden lg:block" },
@@ -50,14 +48,15 @@ export default function Header() {
     { name: "REAL ESTATE", href: "/real-estate" },
     { name: "PARTNERS", href: "/partners", protected: true },
     { name: "CHAT", href: "/chat", protected: true },
-  ]
+  ];
 
-  // Фильтруем элементы навигации: показываем защищённые только если user есть
-  const navItems = allNavItems.filter(item => !item.protected || user)
+  const navItems = allNavItems.filter((item) => !item.protected || user);
 
-  const handleNewListing = () => {
-    setNewListingOpen(true)
-  }
+  const handleNewListingCreated = () => {
+    console.log("[Header] New listing created");
+    setNewListingOpen(false);
+    toast({ title: "Успех", description: "Объявление создано" });
+  };
 
   return (
     <>
@@ -66,7 +65,7 @@ export default function Header() {
           "sticky top-0 z-50 w-full transition-all duration-200",
           isScrolled
             ? "bg-white/80 backdrop-blur-md border-b shadow-sm dark:bg-gray-950/80"
-            : "bg-white dark:bg-gray-950",
+            : "bg-white dark:bg-gray-950"
         )}
       >
         <div className="container flex h-16 items-center justify-between px-4 md:px-6">
@@ -88,7 +87,7 @@ export default function Header() {
                         "flex items-center gap-2 px-2 py-1.5 text-sm font-medium rounded-md transition-colors",
                         pathname === item.href
                           ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:text-primary hover:bg-primary/5",
+                          : "text-muted-foreground hover:text-primary hover:bg-primary/5"
                       )}
                     >
                       {item.name}
@@ -111,7 +110,7 @@ export default function Header() {
                 className={cn(
                   "px-3 py-2 text-sm font-medium rounded-md transition-colors relative",
                   pathname === item.href ? "text-primary" : "text-muted-foreground hover:text-primary",
-                  item.className,
+                  item.className
                 )}
               >
                 {item.name}
@@ -142,7 +141,7 @@ export default function Header() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground relative"
                   onClick={() =>
                     toast({
                       title: "Notifications",
@@ -151,7 +150,7 @@ export default function Header() {
                   }
                 >
                   <Bell className="h-5 w-5" />
-                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary"></span>
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-primary" />
                 </Button>
 
                 <DropdownMenu>
@@ -189,7 +188,7 @@ export default function Header() {
 
                 <Button
                   className="bg-primary text-white hover:bg-primary/90 hidden sm:flex"
-                  onClick={handleNewListing}
+                  onClick={() => setNewListingOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   New listing
@@ -199,7 +198,7 @@ export default function Header() {
                   variant="ghost"
                   size="icon"
                   className="text-muted-foreground hover:text-foreground sm:hidden"
-                  onClick={handleNewListing}
+                  onClick={() => setNewListingOpen(true)}
                 >
                   <Plus className="h-5 w-5" />
                 </Button>
@@ -229,7 +228,7 @@ export default function Header() {
                           alt={user.username || "User"}
                         />
                         <AvatarFallback className="bg-primary/10 text-primary">
-                          {user.username?.[0] || "U"}
+                          {user.username?.[0]?.toUpperCase() || "U"}
                         </AvatarFallback>
                       </>
                     ) : (
@@ -251,7 +250,7 @@ export default function Header() {
                       </div>
                     </div>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem>
+                    <DropdownMenuItem asChild>
                       <Link href="/profile" className="flex w-full">
                         Profile
                       </Link>
@@ -262,21 +261,23 @@ export default function Header() {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={() => {
-                        logout()
-                        toast({ title: "Logged out", description: "You have been logged out" })
+                        console.log("[Header] Logging out user:", user.id);
+                        logout();
+                        toast({ title: "Logged out", description: "You have been logged out" });
                       }}
+                      className="cursor-pointer"
                     >
                       Logout
                     </DropdownMenuItem>
                   </>
                 ) : (
                   <>
-                    <DropdownMenuItem>
+                    <DropdownMenuItem asChild>
                       <Link href="/login" className="flex w-full">
                         Login
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem>
+                    <DropdownMenuItem asChild>
                       <Link href="/register" className="flex w-full">
                         Register
                       </Link>
@@ -289,7 +290,16 @@ export default function Header() {
         </div>
       </header>
 
-      <NewListingModal open={newListingOpen} onOpenChange={setNewListingOpen} />
+      {user && (
+        <NewListingModal
+          open={newListingOpen}
+          onOpenChange={(open: boolean) => {
+            console.log("[Header] NewListingModal open changed:", open);
+            setNewListingOpen(open);
+          }}
+          onPostCreated={handleNewListingCreated}
+        />
+      )}
     </>
-  )
+  );
 }

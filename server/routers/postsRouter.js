@@ -1,189 +1,67 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const authMiddleware = require('../middleware/authMiddleware');
+const PostsController = require('../controllers/postsController');
 
-router.use(authMiddleware);
+// Создаем папку Uploads/posts/, если она не существует
+const uploadDir = 'Uploads/posts/';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-// Получение всех постов
-router.get('/feed', async(req, res) => {
-    try {
-        const posts = await prisma.post.findMany({
-            include: {
-                author: {
-                    select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                },
-                likes: {
-                    select: { userId: true },
-                },
-            },
-        });
-        res.json(posts.map(post => ({
-            id: post.id,
-            authorId: post.authorId,
-            title: post.title,
-            description: post.description,
-            location: post.location,
-            price: post.price,
-            bedrooms: post.bedrooms,
-            bathrooms: post.bathrooms,
-            squareMeters: post.squareMeters,
-            imageUrl: post.imageUrl,
-            createdAt: post.createdAt,
-            likes: post.likes.map(like => like.userId), // Преобразуем likes в массив userId
-            seller: {
-                id: post.author.id,
-                name: post.author.username,
-                email: post.author.email,
-                phone: post.author.phone,
-                avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                skills: post.author.skills || [],
-            },
-        })));
-    } catch (error) {
-        console.error('[GET /api/posts/feed] Error:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Получение нескольких постов по ID
-router.post('/multiple', async(req, res) => {
-    try {
-        const { postIds } = req.body;
-        if (!Array.isArray(postIds) || postIds.length === 0) {
-            return res.status(400).json({ message: 'Invalid or empty postIds array' });
+// Настройка Multer
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        // Проверяем, что file.originalname существует
+        if (!file.originalname || typeof file.originalname !== 'string') {
+            return cb(new Error('Invalid file name'), false);
         }
-        const posts = await prisma.post.findMany({
-            where: { id: { in: postIds.map(id => parseInt(id)) } },
-            include: {
-                author: {
-                    select: { id: true, username: true, email: true, phone: true, profilePicture: true, skills: true },
-                },
-                likes: {
-                    select: { userId: true },
-                },
-            },
-        });
-        res.json(posts.map(post => ({
-            id: post.id,
-            authorId: post.authorId,
-            title: post.title,
-            description: post.description,
-            location: post.location,
-            price: post.price,
-            bedrooms: post.bedrooms,
-            bathrooms: post.bathrooms,
-            squareMeters: post.squareMeters,
-            imageUrl: post.imageUrl,
-            createdAt: post.createdAt,
-            likes: post.likes.map(like => like.userId),
-            seller: {
-                id: post.author.id,
-                name: post.author.username,
-                email: post.author.email,
-                phone: post.author.phone,
-                avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                skills: post.author.skills || [],
-            },
-        })));
-    } catch (error) {
-        console.error('[POST /api/posts/multiple] Error:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, uniqueSuffix + ext);
+    },
 });
 
-// Лайк поста
-router.post('/:id/like', async(req, res) => {
-    try {
-        const postId = parseInt(req.params.id);
-        const userId = req.user.userId;
-        const post = await prisma.post.findUnique({ where: { id: postId } });
-        if (!post) {
-            return res.status(404).json({ message: 'Post not found' });
-        }
-
-        const existingLike = await prisma.like.findUnique({
-            where: { postId_userId: { postId, userId } },
-        });
-
-        if (existingLike) {
-            await prisma.like.delete({
-                where: { postId_userId: { postId, userId } },
-            });
-        } else {
-            await prisma.like.create({
-                data: { postId, userId },
-            });
-        }
-
-        const updatedPost = await prisma.post.findUnique({
-            where: { id: postId },
-            include: { likes: { select: { userId: true } } },
-        });
-
-        res.json({
-            id: updatedPost.id,
-            likes: updatedPost.likes.map(like => like.userId),
-        });
-    } catch (error) {
-        console.error('[POST /api/posts/:id/like] Error:', error);
-        res.status(500).json({ message: 'Server error' });
+const fileFilter = (req, file, cb) => {
+    if (!file.mimetype || !file.mimetype.startsWith('image/')) {
+        return cb(new Error('Файл не является изображением'), false);
     }
-});
+    cb(null, true);
+};
 
-// Создание поста
-router.post('/', async(req, res) => {
-    try {
-        const { title, description, price, location, bedrooms, bathrooms, squareMeters, imageUrl } = req.body;
-        const userId = req.user.userId;
+const upload = multer({
+    storage: storage,
+    fileFilter: fileFilter,
+    limits: { fileSize: 5 * 1024 * 1024, files: 10 }, // 5MB, max 10 файлов
+}).array('images', 10);
 
-        const post = await prisma.post.create({
-            data: {
-                title,
-                description,
-                price: parseFloat(price),
-                location,
-                bedrooms: parseInt(bedrooms) || null,
-                bathrooms: parseInt(bathrooms) || null,
-                squareMeters: parseFloat(squareMeters) || null,
-                imageUrl: imageUrl || null,
-                authorId: userId,
-            },
-            include: {
-                author: true,
-                likes: { select: { userId: true } },
-            },
-        });
-
-        res.status(201).json({
-            post: {
-                id: post.id,
-                authorId: post.authorId,
-                title: post.title,
-                description: post.description,
-                location: post.location,
-                price: post.price,
-                bedrooms: post.bedrooms,
-                bathrooms: post.bathrooms,
-                squareMeters: post.squareMeters,
-                imageUrl: post.imageUrl,
-                createdAt: post.createdAt,
-                likes: post.likes.map(like => like.userId),
-                seller: {
-                    id: post.author.id,
-                    name: post.author.username,
-                    email: post.author.email,
-                    phone: post.author.phone,
-                    avatar: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null,
-                    skills: post.author.skills || [],
-                },
-            },
-        });
-    } catch (error) {
-        console.error('[POST /api/posts] Error:', error);
-        res.status(500).json({ message: 'Server error' });
+// Middleware для обработки ошибок Multer
+const handleMulterError = (err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        console.error('[POST /api/posts] Multer error:', err.message, err.stack);
+        return res.status(400).json({ message: `Ошибка загрузки файлов: ${err.message}` });
     }
-});
+    if (err) {
+        console.error('[POST /api/posts] File upload error:', err.message, err.stack);
+        return res.status(400).json({ message: err.message || 'Ошибка загрузки файлов' });
+    }
+    next();
+};
+
+// Маршруты
+router.post('/', authMiddleware, upload, handleMulterError, PostsController.createPost);
+router.get('/', PostsController.getPosts);
+router.get('/user/:userId', PostsController.getUserPosts);
+router.get('/my', authMiddleware, PostsController.getMyPosts);
+router.get('/:id', PostsController.getPostById);
+router.delete('/:id', authMiddleware, PostsController.deletePost);
+router.post('/:postId/like', authMiddleware, PostsController.toggleLike);
+router.post('/multiple', PostsController.getMultiplePosts);
 
 module.exports = router;

@@ -1,31 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Edit, Share2, Upload, UserPlus, Calendar, Users, Trash2, Plus } from "lucide-react";
+import { Share2, Users, Calendar, MapPin, Bed, Bath, SquareIcon, Edit, Trash2, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/components/ui/use-toast";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import ProtectedRoute from "@/components/protected-route";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { useAuth } from "@/context/auth-context";
 
-type Profile = {
-  id: number;
+interface Profile {
+  id: string;
   username: string;
   email: string;
   profilePicture?: string | null;
@@ -36,101 +30,192 @@ type Profile = {
   friendsCount: number;
   postsCount: number;
   eventsCount: number;
-};
+}
 
-type Friend = {
-  id: number;
+interface Friend {
+  id: string;
   username: string;
   profilePicture?: string | null;
-};
+}
 
-type FormErrors = {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  bio?: string;
-  location?: string;
-  skills?: string;
-};
+interface Seller {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  avatar?: string | null;
+  skills: string[];
+}
+
+interface Property {
+  id: number;
+  title: string;
+  description: string;
+  location: string;
+  price: number;
+  bedrooms?: number;
+  bathrooms?: number;
+  squareMeters?: number;
+  imageUrls: string[];
+  createdAt: string;
+  authorId: string;
+  seller: Seller;
+}
 
 export default function ProfilePage() {
   const { toast } = useToast();
-  const params = useParams();
-  const userId = params.userId as string; // Получаем ID из URL
+  const router = useRouter();
+  const { user, isLoading } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [editProfileOpen, setEditProfileOpen] = useState(false);
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [friendsDialogOpen, setFriendsDialogOpen] = useState(false);
+  const [posts, setPosts] = useState<Property[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [postToDelete, setPostToDelete] = useState<number | null>(null);
+  const [friendsDialogOpen, setFriendsDialogOpen] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
+    username: "",
     bio: "",
+    phone: "",
     location: "",
-    skills: [] as string[],
     newSkill: "",
+    skills: [] as string[],
   });
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [errors, setErrors] = useState({
+    username: "",
+    phone: "",
+    location: "",
+  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log("[ProfilePage] useEffect triggered, userId:", userId);
+    console.log("[ProfilePage] useEffect triggered, isLoading:", isLoading, "user:", !!user);
+    if (isLoading) {
+      console.log("[ProfilePage] Waiting for auth...");
+      return;
+    }
+
+    if (!user) {
+      console.log("[ProfilePage] No user, redirecting to login");
+      toast({
+        title: "Требуется авторизация",
+        description: "Пожалуйста, войдите, чтобы просмотреть профиль",
+        variant: "destructive",
+      });
+      router.push("/login");
+      return;
+    }
+
+    const controller = new AbortController();
+
     const fetchProfile = async () => {
       try {
-        setLoading(true);
-        const url = userId
-          ? `http://localhost:5000/api/profile/${userId}`
-          : "http://localhost:5000/api/profile";
-        console.log(`[ProfilePage] Fetching profile from ${url}`);
-
+        const url = "http://localhost:5000/api/auth/user";
+        console.log("[ProfilePage] Fetching profile from:", url);
         const response = await fetch(url, {
           method: "GET",
           credentials: "include",
+          signal: controller.signal,
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorText = await response.text();
+          console.error("[ProfilePage] Profile fetch failed:", response.status, errorText);
           throw new Error(
-            errorData.message || `Failed to fetch profile: ${response.status}`
+            response.status === 401 ? "Требуется авторизация" : `Не удалось загрузить профиль: ${response.status}`
           );
         }
 
-        const data: Profile = await response.json();
-        console.log("[ProfilePage] Profile fetched:", data);
-        setProfile(data);
-
-        // Проверяем, является ли это профилем текущего пользователя
-        const myProfileResponse = await fetch("http://localhost:5000/api/profile", {
-          method: "GET",
-          credentials: "include",
-        });
-        if (!myProfileResponse.ok) {
-          throw new Error("Failed to fetch my profile");
-        }
-        const myProfile = await myProfileResponse.json();
-        setIsOwnProfile(myProfile.id === data.id);
-
-        setProfileForm({
-          firstName: data.username.split(" ")[0] || "",
-          lastName: data.username.split(" ")[1] || "",
+        const data = await response.json();
+        console.log("[ProfilePage] Raw profile data:", data);
+        const normalizedProfile: Profile = {
+          id: String(data.id),
+          username: data.username || "",
           email: data.email || "",
-          phone: data.phone || "",
-          bio: data.bio || "",
-          location: data.location || "",
-          skills: data.skills || [],
+          profilePicture: data.profilePicture || null,
+          bio: data.bio || null,
+          phone: data.phone || null,
+          location: data.location || null,
+          skills: Array.isArray(data.skills) ? data.skills : [],
+          friendsCount: Number(data.friendsCount) || 0,
+          postsCount: Number(data.postsCount) || 0,
+          eventsCount: Number(data.eventsCount) || 0,
+        };
+        console.log("[ProfilePage] Normalized profile:", normalizedProfile);
+        setProfile(normalizedProfile);
+        setProfileForm({
+          username: normalizedProfile.username,
+          bio: normalizedProfile.bio || "",
+          phone: normalizedProfile.phone || "",
+          location: normalizedProfile.location || "",
           newSkill: "",
+          skills: normalizedProfile.skills,
         });
-      } catch (error) {
-        console.error("[ProfilePage] Error fetching profile:", error);
+      } catch (error: any) {
+        if (error.name === "AbortError") return;
+        console.error("[ProfilePage] Error fetching profile:", error.message);
         toast({
           title: "Ошибка",
-          description:
-            error instanceof Error ? error.message : "Не удалось загрузить профиль",
+          description: error.message || "Не удалось загрузить профиль",
+          variant: "destructive",
+        });
+        router.push("/");
+      }
+    };
+
+    const fetchPosts = async () => {
+      try {
+        const url = "http://localhost:5000/api/posts/my";
+        console.log("[ProfilePage] Fetching posts from:", url);
+        const response = await fetch(url, {
+          method: "GET",
+          credentials: "include",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("[ProfilePage] Posts fetch failed:", response.status, errorText);
+          throw new Error(
+            response.status === 401 ? "Требуется авторизация" : `Не удалось загрузить посты: ${response.status}`
+          );
+        }
+
+        const data = await response.json();
+        console.log("[ProfilePage] Raw posts data:", data);
+        const normalizedPosts: Property[] = Array.isArray(data)
+          ? data.map((post: any) => ({
+              id: Number(post.id),
+              title: post.title || "",
+              description: post.description || "",
+              location: post.location || "",
+              price: Number(post.price) || 0,
+              bedrooms: post.bedrooms ? Number(post.bedrooms) : undefined,
+              bathrooms: post.bathrooms ? Number(post.bathrooms) : undefined,
+              squareMeters: post.squareMeters ? Number(post.squareMeters) : undefined,
+              imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls : [],
+              createdAt: post.createdAt || new Date().toISOString(),
+              authorId: String(post.authorId),
+              seller: {
+                id: String(post.seller?.id || post.authorId),
+                name: post.seller?.name || "",
+                email: post.seller?.email || "",
+                phone: post.seller?.phone || null,
+                avatar: post.seller?.avatar || null,
+                skills: Array.isArray(post.seller?.skills) ? post.seller.skills : [],
+              },
+            }))
+          : [];
+        console.log("[ProfilePage] Normalized posts:", normalizedPosts);
+        setPosts(normalizedPosts);
+      } catch (error: any) {
+        if (error.name === "AbortError") return;
+        console.error("[ProfilePage] Error fetching posts:", error.message);
+        setPosts([]);
+        toast({
+          title: "Ошибка",
+          description: error.message || "Не удалось загрузить посты",
           variant: "destructive",
         });
       } finally {
@@ -138,108 +223,91 @@ export default function ProfilePage() {
       }
     };
 
-    if (userId) {
-      fetchProfile();
-    } else {
-      console.log("[ProfilePage] No userId provided, fetching current user profile");
-      fetchProfile();
-    }
-  }, [userId, toast]);
+    fetchProfile();
+    fetchPosts();
+
+    return () => controller.abort();
+  }, [user, isLoading, toast, router]);
 
   const fetchFriends = async () => {
     try {
-      console.log(
-        `[ProfilePage] Fetching friends from /api/friends${userId ? `/${userId}` : ""}`
-      );
-      const url = userId
-        ? `http://localhost:5000/api/friends/${userId}`
-        : "http://localhost:5000/api/friends";
-      const response = await fetch(url, {
-        method: "GET",
-        credentials: "include",
-      });
+      const url = "http://localhost:5000/api/friends";
+      console.log("[ProfilePage] Fetching friends from:", url);
+      const response = await fetch(url, { method: "GET", credentials: "include" });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to fetch friends");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Friends fetch failed:", response.status, errorText);
+        throw new Error(`Не удалось загрузить друзей: ${response.status}`);
       }
 
-      const data: Friend[] = await response.json();
-      console.log("[ProfilePage] Friends fetched:", data);
-      setFriends(data);
+      const data = await response.json();
+      console.log("[ProfilePage] Raw friends data:", data);
+      const normalizedFriends: Friend[] = Array.isArray(data)
+        ? data.map((friend: any) => ({
+            id: String(friend.id),
+            username: friend.username || "",
+            profilePicture: friend.profilePicture || null,
+          }))
+        : [];
+      console.log("[ProfilePage] Normalized friends:", normalizedFriends);
+      setFriends(normalizedFriends);
       setFriendsDialogOpen(true);
-    } catch (error) {
-      console.error("[ProfilePage] Error fetching friends:", error);
+    } catch (error: any) {
+      console.error("[ProfilePage] Error fetching friends:", error.message);
       toast({
         title: "Ошибка",
-        description:
-          error instanceof Error ? error.message : "Не удалось загрузить друзей",
+        description: error.message || "Не удалось загрузить друзей",
         variant: "destructive",
       });
     }
   };
 
-  const validateField = (name: string, value: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-
-    switch (name) {
-      case "firstName":
-        return value.trim() ? "" : "Имя обязательно";
-      case "lastName":
-        return value.trim() ? "" : "Фамилия обязательна";
-      case "email":
-        return value && emailRegex.test(value) ? "" : "Введите корректный email";
-      case "phone":
-        return !value || phoneRegex.test(value)
-          ? ""
-          : "Телефон должен быть в формате +1234567890";
-      case "bio":
-        return value.length <= 255
-          ? ""
-          : "Биография должна быть короче 255 символов";
-      case "location":
-        return value.length <= 100
-          ? ""
-          : "Локация должна быть короче 100 символов";
-      case "newSkill":
-        return value.length <= 50
-          ? ""
-          : "Навык должен быть короче 50 символов";
-      default:
-        return "";
+  const handleShareProfile = () => {
+    if (!profile) {
+      console.log("[ProfilePage] Cannot share profile: profile is null");
+      toast({ title: "Ошибка", description: "Профиль не загружен", variant: "destructive" });
+      return;
     }
+    const profileUrl = `http://localhost:3000/profile/${profile.id}`;
+    navigator.clipboard.writeText(profileUrl);
+    console.log("[ProfilePage] Profile URL copied:", profileUrl);
+    toast({ title: "Успех", description: "Ссылка на профиль скопирована" });
+    setShareDialogOpen(false);
   };
 
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setProfileForm({ ...profileForm, [name]: value });
-    const error = validateField(name, value);
-    setErrors((prev) => ({ ...prev, [name]: error }));
+  const validateForm = () => {
+    const newErrors = { username: "", phone: "", location: "" };
+    let isValid = true;
+
+    if (!profileForm.username.trim()) {
+      newErrors.username = "Имя пользователя обязательно";
+      isValid = false;
+    }
+
+    if (profileForm.phone && !/^\+?\d{10,15}$/.test(profileForm.phone)) {
+      newErrors.phone = "Неверный формат номера телефона";
+      isValid = false;
+    }
+
+    if (profileForm.location && profileForm.location.length < 2) {
+      newErrors.location = "Локация должна содержать минимум 2 символа";
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
   };
 
   const handleAddSkill = () => {
     const skill = profileForm.newSkill.trim();
-    const error = validateField("newSkill", skill);
-    if (error || !skill) {
-      setErrors((prev) => ({
-        ...prev,
-        skills: error || "Навык не может быть пустым",
-      }));
-      return;
+    if (skill && !profileForm.skills.includes(skill)) {
+      setProfileForm({
+        ...profileForm,
+        skills: [...profileForm.skills, skill],
+        newSkill: "",
+      });
     }
-    if (profileForm.skills.includes(skill)) {
-      setErrors((prev) => ({ ...prev, skills: "Этот навык уже добавлен" }));
-      return;
-    }
-    setProfileForm({
-      ...profileForm,
-      skills: [...profileForm.skills, skill],
-      newSkill: "",
-    });
-    setErrors((prev) => ({ ...prev, skills: "" }));
   };
 
   const handleRemoveSkill = (skillToRemove: string) => {
@@ -249,613 +317,475 @@ export default function ProfilePage() {
     });
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setPhotoFile(e.target.files[0]);
-    }
-  };
-
-  const handleUploadPhoto = async () => {
-    if (!photoFile) {
-      toast({
-        title: "Ошибка",
-        description: "Фото не выбрано",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("profilePicture", photoFile);
-
-    try {
-      console.log("[ProfilePage] Uploading photo to /api/profile/upload-photo");
-      const response = await fetch(
-        "http://localhost:5000/api/profile/upload-photo",
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to upload photo");
-      }
-
-      const updatedProfile = await response.json();
-      console.log("[ProfilePage] Photo uploaded, updated profile:", updatedProfile);
-      setProfile(updatedProfile);
-      setPhotoFile(null);
-      toast({ title: "Успех", description: "Фото успешно загружено" });
-    } catch (error) {
-      console.error("[ProfilePage] Error uploading photo:", error);
-      toast({
-        title: "Ошибка",
-        description:
-          error instanceof Error ? error.message : "Не удалось загрузить фото",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleSaveProfile = async () => {
-    const newErrors: FormErrors = {
-      firstName: validateField("firstName", profileForm.firstName),
-      lastName: validateField("lastName", profileForm.lastName),
-      email: validateField("email", profileForm.email),
-      phone: validateField("phone", profileForm.phone),
-      bio: validateField("bio", profileForm.bio),
-      location: validateField("location", profileForm.location),
-    };
-
-    setErrors(newErrors);
-    if (Object.values(newErrors).some((error) => error)) {
+    if (!profile || !validateForm()) {
       toast({
         title: "Ошибка",
-        description: "Исправьте ошибки в форме",
+        description: "Пожалуйста, исправьте ошибки в форме",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      console.log("[ProfilePage] Saving profile to /api/profile/update");
-      const response = await fetch("http://localhost:5000/api/profile/update", {
+      console.log("[ProfilePage] Saving profile:", profileForm);
+      const response = await fetch("http://localhost:5000/api/auth/user", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
-          username: `${profileForm.firstName} ${profileForm.lastName}`,
-          email: profileForm.email,
-          phone: profileForm.phone || null,
+          username: profileForm.username,
           bio: profileForm.bio || null,
+          phone: profileForm.phone || null,
           location: profileForm.location || null,
           skills: profileForm.skills,
         }),
+        credentials: "include",
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update profile");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Profile save failed:", response.status, errorText);
+        throw new Error(`Не удалось обновить профиль: ${response.status}`);
       }
 
       const updatedProfile = await response.json();
       console.log("[ProfilePage] Profile updated:", updatedProfile);
-      setProfile(updatedProfile);
+      setProfile({
+        ...updatedProfile,
+        skills: Array.isArray(updatedProfile.skills) ? updatedProfile.skills : [],
+        profilePicture: updatedProfile.profilePicture || null,
+        bio: updatedProfile.bio || null,
+        phone: updatedProfile.phone || null,
+        location: updatedProfile.location || null,
+        friendsCount: Number(updatedProfile.friendsCount) || 0,
+        postsCount: Number(updatedProfile.postsCount) || 0,
+        eventsCount: Number(updatedProfile.eventsCount) || 0,
+      });
       setEditProfileOpen(false);
-      toast({ title: "Успех", description: "Профиль успешно обновлен" });
-    } catch (error) {
-      console.error("[ProfilePage] Error updating profile:", error);
+      toast({ title: "Успех", description: "Профиль обновлен" });
+    } catch (error: any) {
+      console.error("[ProfilePage] Error saving profile:", error.message);
       toast({
         title: "Ошибка",
-        description:
-          error instanceof Error ? error.message : "Не удалось обновить профиль",
+        description: error.message || "Не удалось обновить профиль",
         variant: "destructive",
       });
     }
   };
 
-  const handleShareProfile = () => {
-    if (!profile) {
+  const handleDeletePost = async () => {
+    if (!postToDelete) return;
+    try {
+      console.log("[ProfilePage] Deleting post:", postToDelete);
+      const response = await fetch(`http://localhost:5000/api/posts/${postToDelete}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[ProfilePage] Post delete failed:", response.status, errorText);
+        throw new Error(`Не удалось удалить пост: ${response.status}`);
+      }
+
+      setPosts((prev) => prev.filter((p) => p.id !== postToDelete));
+      setDeleteDialogOpen(false);
+      setPostToDelete(null);
+      toast({ title: "Успех", description: "Пост удален" });
+    } catch (error: any) {
+      console.error("[ProfilePage] Error deleting post:", error.message);
       toast({
         title: "Ошибка",
-        description: "Профиль не загружен",
+        description: error.message || "Не удалось удалить пост",
         variant: "destructive",
       });
-      return;
     }
-    const profileUrl = `https://realestatepro.com/profile/${profile.username.replace(
-      " ",
-      "-"
-    )}`;
-    navigator.clipboard.writeText(profileUrl);
-    console.log("[ProfilePage] Profile link copied:", profileUrl);
-    toast({ title: "Успех", description: "Ссылка на профиль скопирована" });
-    setShareDialogOpen(false);
   };
 
-  if (loading) return <div className="container px-4 py-8">Загрузка...</div>;
+  if (isLoading) {
+    console.log("[ProfilePage] Rendering: isLoading");
+    return <div className="container px-4 py-8">Проверка авторизации...</div>;
+  }
+
+  if (loading) {
+    console.log("[ProfilePage] Rendering: loading");
+    return <div className="container px-4 py-8">Загрузка...</div>;
+  }
 
   if (!profile) {
+    console.log("[ProfilePage] Rendering: no profile");
     return (
       <div className="container px-4 py-8">
-        <h1 className="text-2xl font-bold">Пользователь не найден</h1>
+        <h1 className="text-2xl font-bold">Профиль не найден</h1>
       </div>
     );
   }
 
+  console.log("[ProfilePage] Rendering profile for:", profile.username, { postCount: posts.length });
+
   return (
-    <ProtectedRoute>
-      <div className="container px-4 py-8 md:px-6 md:py-12">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
-          <div className="space-y-8">
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5 }}
-              className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
-            >
-              <div className="flex flex-col items-center text-center">
-                <div className="relative">
-                  <Avatar className="h-24 w-24 border-4 border-primary/20">
-                    <AvatarImage
-                      src={
-                        profile.profilePicture ||
-                        "/placeholder.svg?height=96&width=96"
-                      }
-                      alt={profile.username}
-                    />
-                    <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                      {profile.username.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  {isOwnProfile && (
-                    <Button
-                      size="icon"
-                      className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full bg-primary text-white hover:bg-primary/90"
-                      onClick={() => setEditProfileOpen(true)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-                <div className="mt-4">
-                  <h2 className="text-xl font-bold">{profile.username}</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Агент по недвижимости
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    События
-                  </span>
-                  <Badge variant="outline" className="bg-primary/5">
-                    {profile.eventsCount}
-                  </Badge>
-                </div>
-                <Separator />
-                <div
-                  className="flex items-center justify-between cursor-pointer"
-                  onClick={fetchFriends}
-                >
-                  <span className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-primary" />
-                    Подписчики
-                  </span>
-                  <Badge variant="outline" className="bg-primary/5">
-                    {profile.friendsCount}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-2">
+    <div className="container px-4 py-8 md:px-6 md:py-12">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-4">
+        <div className="space-y-8">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
+            className="rounded-xl border bg-white p-5 shadow-sm dark:bg-gray-900"
+          >
+            <div className="relative flex flex-col items-center text-center">
+              <div className="relative">
+                <Avatar className="h-24 w-24 border-4 border-primary/20">
+                  <AvatarImage
+                    src={profile.profilePicture ? `http://localhost:5000${profile.profilePicture}` : "/placeholder.svg?height=96&width=96"}
+                    alt={profile.username}
+                  />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
+                    {profile.username.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => setShareDialogOpen(true)}
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setEditProfileOpen(true)}
+                  className="absolute bottom-0 right-0 bg-white rounded-full shadow-md hover:bg-primary/10"
                 >
-                  <Share2 className="mr-2 h-4 w-4" />
-                  Поделиться
+                  <Edit className="h-5 w-5 text-primary" />
                 </Button>
               </div>
-            </motion.div>
-          </div>
-
-          <div className="lg:col-span-3">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="mb-8 rounded-xl border bg-white shadow-sm dark:bg-gray-900"
-            >
-              <Tabs defaultValue="about-company">
-                <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
-                  <TabsTrigger
-                    value="about-company"
-                    className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-                  >
-                    О КОМПАНИИ
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="agent-info"
-                    className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-                  >
-                    ИНФОРМАЦИЯ ОБ АГЕНТЕ
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="about-company" className="p-6">
-                  <div className="space-y-6">
-                    <div>
-                      <h2 className="text-lg font-semibold text-primary">О НАС</h2>
-                      <div className="mt-4 rounded-lg border p-4 bg-muted/30">
-                        <p className="text-muted-foreground">
-                          {profile.bio || "Биография не указана"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <h2 className="text-lg font-semibold text-primary">НАВЫКИ</h2>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {profile.skills.length > 0 ? (
-                          profile.skills.map((skill, index) => (
-                            <Badge
-                              key={index}
-                              className="bg-primary/10 text-primary hover:bg-primary/20"
-                            >
-                              {skill}
-                            </Badge>
-                          ))
-                        ) : (
-                          <p className="text-muted-foreground">
-                            Навыки не указаны
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="agent-info" className="p-6">
-                  <h2 className="text-xl font-bold">Информация об агенте</h2>
-                  <div className="mt-6 grid gap-6 md:grid-cols-2">
-                    <div className="rounded-lg border p-4">
-                      <h3 className="flex items-center gap-2 font-medium">
-                        <Users className="h-5 w-5 text-primary" />
-                        Контактные данные
-                      </h3>
-                      <div className="mt-4 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5">
-                            Email
-                          </Badge>
-                          <span className="text-sm">{profile.email}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5">
-                            Телефон
-                          </Badge>
-                          <span className="text-sm">
-                            {profile.phone || "Не указан"}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="bg-primary/5">
-                            Офис
-                          </Badge>
-                          <span className="text-sm">
-                            {profile.location || "Не указан"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </motion.div>
-          </div>
-        </div>
-
-        {isOwnProfile && (
-          <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
-            <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <UserPlus className="h-5 w-5 text-primary" />
-                  Редактировать профиль
-                </DialogTitle>
-                <DialogDescription>
-                  Обновите вашу личную информацию.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid gap-4 py-4">
-                <div className="flex flex-col items-center gap-4">
-                  <Avatar className="h-24 w-24 border-4 border-primary/20">
-                    <AvatarImage
-                      src={
-                        photoFile
-                          ? URL.createObjectURL(photoFile)
-                          : profile.profilePicture ||
-                            "/placeholder.svg?height=96&width=96"
-                      }
-                      alt="Профиль"
-                    />
-                    <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                      {profile.username.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex gap-2">
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoChange}
-                      className="w-auto"
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleUploadPhoto}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Загрузить
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">Имя</Label>
-                    <Input
-                      id="firstName"
-                      name="firstName"
-                      value={profileForm.firstName}
-                      onChange={handleInputChange}
-                      className={errors.firstName ? "border-red-500" : ""}
-                    />
-                    {errors.firstName && (
-                      <p className="text-red-500 text-sm">{errors.firstName}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Фамилия</Label>
-                    <Input
-                      id="lastName"
-                      name="lastName"
-                      value={profileForm.lastName}
-                      onChange={handleInputChange}
-                      className={errors.lastName ? "border-red-500" : ""}
-                    />
-                    {errors.lastName && (
-                      <p className="text-red-500 text-sm">{errors.lastName}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    value={profileForm.email}
-                    onChange={handleInputChange}
-                    className={errors.email ? "border-red-500" : ""}
-                  />
-                  {errors.email && (
-                    <p className="text-red-500 text-sm">{errors.email}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Телефон</Label>
-                  <Input
-                    id="phone"
-                    name="phone"
-                    value={profileForm.phone}
-                    onChange={handleInputChange}
-                    className={errors.phone ? "border-red-500" : ""}
-                  />
-                  {errors.phone && (
-                    <p className="text-red-500 text-sm">{errors.phone}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bio">Биография</Label>
-                  <Textarea
-                    id="bio"
-                    name="bio"
-                    rows={4}
-                    value={profileForm.bio}
-                    onChange={handleInputChange}
-                    className={errors.bio ? "border-red-500" : ""}
-                  />
-                  {errors.bio && (
-                    <p className="text-red-500 text-sm">{errors.bio}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="location">Локация</Label>
-                  <Input
-                    id="location"
-                    name="location"
-                    value={profileForm.location}
-                    onChange={handleInputChange}
-                    className={errors.location ? "border-red-500" : ""}
-                  />
-                  {errors.location && (
-                    <p className="text-red-500 text-sm">{errors.location}</p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Навыки</Label>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {profileForm.skills.map((skill, index) => (
-                      <Badge
-                        key={index}
-                        variant="secondary"
-                        className="flex items-center gap-1"
-                      >
-                        {skill}
-                        <Trash2
-                          className="h-4 w-4 cursor-pointer text-red-500"
-                          onClick={() => handleRemoveSkill(skill)}
-                        />
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      name="newSkill"
-                      value={profileForm.newSkill}
-                      onChange={handleInputChange}
-                      placeholder="Добавить новый навык"
-                      className={errors.skills ? "border-red-500" : ""}
-                    />
-                    <Button variant="outline" onClick={handleAddSkill}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {errors.skills && (
-                    <p className="text-red-500 text-sm">{errors.skills}</p>
-                  )}
-                </div>
-              </div>
-
-              <DialogFooter className="sticky bottom-0 bg-background pt-4 dark:bg-gray-900">
-                <Button
-                  variant="outline"
-                  onClick={() => setEditProfileOpen(false)}
-                >
-                  Отмена
-                </Button>
-                <Button
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={handleSaveProfile}
-                >
-                  Сохранить изменения
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-
-        <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Share2 className="h-5 w-5 text-primary" />
-                Поделиться профилем
-              </DialogTitle>
-              <DialogDescription>
-                Поделитесь вашим профилем с другими.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label>Ссылка на профиль</Label>
-                <Input
-                  readOnly
-                  value={
-                    profile.username
-                      ? `https://realestatepro.com/profile/${profile.username.replace(
-                          " ",
-                          "-"
-                        )}`
-                      : "Профиль не загружен"
-                  }
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
+              <div className="mt-4">
+                <h2 className="text-xl font-bold">{profile.username}</h2>
+                <p className="text-sm text-muted-foreground">Агент по недвижимости</p>
               </div>
             </div>
-
-            <DialogFooter>
-              <Button onClick={handleShareProfile}>Скопировать ссылку</Button>
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-primary" />
+                  События
+                </span>
+                <Badge variant="outline" className="bg-primary/5">{profile.eventsCount}</Badge>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between cursor-pointer" onClick={fetchFriends}>
+                <span className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  Подписчики
+                </span>
+                <Badge variant="outline" className="bg-primary/5">{profile.friendsCount}</Badge>
+              </div>
+            </div>
+            <div className="mt-6">
               <Button
                 variant="outline"
-                onClick={() => setShareDialogOpen(false)}
+                className="w-full"
+                onClick={() => setShareDialogOpen(true)}
               >
-                Закрыть
+                <Share2 className="mr-2 h-4 w-4" />
+                Поделиться
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={friendsDialogOpen} onOpenChange={setFriendsDialogOpen}>
-          <DialogContent className="sm:max-w-[500px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Друзья
-              </DialogTitle>
-              <DialogDescription>Ваш список друзей.</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 space-y-4">
-              {friends.length > 0 ? (
-                friends.map((friend) => (
-                  <div
-                    key={friend.id}
-                    className="flex items-center justify-between p-2 border rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage
-                          src={
-                            friend.profilePicture ||
-                            "/placeholder.svg?height=40&width=40"
-                          }
-                          alt={friend.username}
-                        />
-                        <AvatarFallback>
-                          {friend.username.slice(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span>{friend.username}</span>
-                    </div>
-                    <Link href={`/profile/${friend.id}`}>
-                      <Button variant="outline" size="sm">
-                        Посмотреть профиль
-                      </Button>
-                    </Link>
-                  </div>
-                ))
-              ) : (
-                <p className="text-muted-foreground">Друзей пока нет.</p>
-              )}
             </div>
-          </DialogContent>
-        </Dialog>
+          </motion.div>
+        </div>
+        <div className="lg:col-span-3">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="mb-8 rounded-xl border bg-white shadow-sm dark:bg-gray-900"
+          >
+            <Tabs defaultValue="about">
+              <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
+                <TabsTrigger
+                  value="about"
+                  className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+                >
+                  О себе
+                </TabsTrigger>
+                <TabsTrigger
+                  value="info"
+                  className="rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
+                >
+                  Контакты
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="about" className="p-6">
+                <div className="space-y-6">
+                  <div>
+                    <h2 className="text-lg font-semibold text-primary">Биография</h2>
+                    <div className="mt-4 rounded-lg border p-4 bg-muted/30">
+                      <p className="text-muted-foreground">{profile.bio || "Биография не указана"}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-primary">Навыки</h2>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {profile.skills.length > 0 ? (
+                        profile.skills.map((skill, index) => (
+                          <Badge
+                            key={index}
+                            className="bg-primary/10 text-primary hover:bg-primary/20"
+                          >
+                            {skill}
+                          </Badge>
+                        ))
+                      ) : (
+                        <p className="text-muted-foreground">Навыки не указаны</p>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-primary">Объявления</h2>
+                    {posts.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        {posts.map((post) => (
+                          <Card key={post.id} className="overflow-hidden">
+                            <div className="relative h-32">
+                              <Link href={`/real-estate/${post.id}`}>
+                                <Image
+                                  src={post.imageUrls[0] || "/placeholder.svg"}
+                                  alt={post.title}
+                                  fill
+                                  className="object-cover"
+                                  sizes="(max-width: 768px) 100vw, 50vw"
+                                />
+                              </Link>
+                            </div>
+                            <div className="p-4">
+                              <div className="flex justify-between items-start">
+                                <Link href={`/real-estate/${post.id}`}>
+                                  <h3 className="text-sm font-semibold hover:underline">
+                                    {post.title}
+                                  </h3>
+                                </Link>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    setPostToDelete(post.id);
+                                    setDeleteDialogOpen(true);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                              <p className="text-xs text-gray-600 mb-2">
+                                {post.description.slice(0, 50)}...
+                              </p>
+                              <div className="flex items-center gap-2 mb-2">
+                                <MapPin className="h-3 w-3 text-primary" />
+                                <span className="text-xs">{post.location}</span>
+                              </div>
+                              <div className="flex gap-3 mb-2">
+                                {post.bedrooms && (
+                                  <div className="flex items-center gap-1">
+                                    <Bed className="h-3 w-3 text-primary" />
+                                    <span className="text-xs">{post.bedrooms}</span>
+                                  </div>
+                                )}
+                                {post.bathrooms && (
+                                  <div className="flex items-center gap-1">
+                                    <Bath className="h-3 w-3 text-primary" />
+                                    <span className="text-xs">{post.bathrooms}</span>
+                                  </div>
+                                )}
+                                {post.squareMeters && (
+                                  <div className="flex items-center gap-1">
+                                    <SquareIcon className="h-3 w-3 text-primary" />
+                                    <span className="text-xs">{post.squareMeters} м²</span>
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-sm font-bold text-primary">
+                                €{post.price.toLocaleString()}
+                              </span>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground mt-4">Объявления отсутствуют</p>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+              <TabsContent value="info" className="p-6">
+                <h2 className="text-xl font-bold">Контактные данные</h2>
+                <div className="mt-6 grid gap-6 md:grid-cols-2">
+                  <div className="rounded-lg border p-4">
+                    <h3 className="flex items-center gap-2 font-medium">
+                      <Users className="h-5 w-5 text-primary" />
+                      Информация
+                    </h3>
+                    <div className="mt-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-primary/5">Email</Badge>
+                        <span className="text-sm">{profile.email}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-primary/5">Телефон</Badge>
+                        <span className="text-sm">{profile.phone || "Не указан"}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-primary/5">Локация</Badge>
+                        <span className="text-sm">{profile.location || "Не указана"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </motion.div>
+        </div>
       </div>
-    </ProtectedRoute>
-  );
-}
 
-function Home(props: any) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
+      <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Редактировать профиль</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label htmlFor="username" className="text-sm font-medium">Имя пользователя</label>
+              <Input
+                id="username"
+                value={profileForm.username}
+                onChange={(e) => setProfileForm({ ...profileForm, username: e.target.value })}
+                placeholder="Введите имя пользователя"
+              />
+              {errors.username && <p className="text-sm text-destructive">{errors.username}</p>}
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="bio" className="text-sm font-medium">Биография</label>
+              <Textarea
+                id="bio"
+                value={profileForm.bio}
+                onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
+                placeholder="Расскажите о себе"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="phone" className="text-sm font-medium">Телефон</label>
+              <Input
+                id="phone"
+                value={profileForm.phone}
+                onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                placeholder="+1234567890"
+              />
+              {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="location" className="text-sm font-medium">Локация</label>
+              <Input
+                id="location"
+                value={profileForm.location}
+                onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
+                placeholder="Город, Страна"
+              />
+              {errors.location && <p className="text-sm text-destructive">{errors.location}</p>}
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="newSkill" className="text-sm font-medium">Навыки</label>
+              <div className="flex gap-2">
+                <Input
+                  id="newSkill"
+                  value={profileForm.newSkill}
+                  onChange={(e) => setProfileForm({ ...profileForm, newSkill: e.target.value })}
+                  placeholder="Введите навык"
+                  onKeyPress={(e) => e.key === "Enter" && handleAddSkill()}
+                />
+                <Button onClick={handleAddSkill}>Добавить</Button>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {profileForm.skills.map((skill, index) => (
+                  <Badge
+                    key={index}
+                    className="flex items-center gap-1 bg-primary/10 text-primary"
+                  >
+                    {skill}
+                    <X
+                      className="h-3 w-3 cursor-pointer"
+                      onClick={() => handleRemoveSkill(skill)}
+                    />
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditProfileOpen(false)}>
+              Отмена
+            </Button>
+            <Button onClick={handleSaveProfile}>Сохранить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Поделиться профилем</DialogTitle>
+            <DialogDescription>
+              Скопируйте ссылку ниже, чтобы поделиться этим профилем.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Input readOnly value={`http://localhost:3000/profile/${profile?.id || ""}`} />
+          </div>
+          <DialogFooter>
+            <Button onClick={handleShareProfile}>Копировать ссылку</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={friendsDialogOpen} onOpenChange={setFriendsDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Подписчики</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {friends.length === 0 ? (
+              <p className="text-muted-foreground">Подписчики отсутствуют</p>
+            ) : (
+              friends.map((friend) => (
+                <Link
+                  key={friend.id}
+                  href={`/profile/${friend.id}`}
+                  className="flex items-center gap-4 rounded-lg border p-3 hover:bg-muted"
+                >
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage
+                      src={friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : "/placeholder.svg?height=40&width=40"}
+                      alt={friend.username}
+                    />
+                    <AvatarFallback>{friend.username.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <span>{friend.username}</span>
+                </Link>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Удалить пост</DialogTitle>
+            <DialogDescription>
+              Вы уверены, что хотите удалить этот пост? Это действие нельзя отменить.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="destructive" onClick={handleDeletePost}>
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
