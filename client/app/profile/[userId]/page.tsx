@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Edit, Share2, Upload, UserPlus, Calendar, Users, Trash2, MapPin, Bed, Bath, SquareIcon } from "lucide-react";
+import { Edit, Share2, Upload, UserPlus, Calendar, Users, Trash2, MapPin, Bed, Bath, SquareIcon, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -134,51 +134,54 @@ export default function ProfilePage() {
           signal: controller.signal,
         });
 
-        const responseBody = await response.text();
-        console.log(`[ProfilePage] Response:`, {
+        console.log("[ProfilePage] Profile response:", {
           status: response.status,
-          body: responseBody,
-          url,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
         });
 
         if (!response.ok) {
-          let errorData: { message?: string } = {};
-          try {
-            errorData = JSON.parse(responseBody);
-          } catch (e) {
-            console.error("[ProfilePage] Failed to parse error response:", e);
-          }
-          console.error(`[ProfilePage] Profile fetch failed:`, {
-            status: response.status,
-            message: errorData.message || 'No error message',
-            url,
-          });
+          const errorText = await response.text();
+          console.error("[ProfilePage] Profile fetch failed:", response.status, errorText);
           if (response.status === 401) {
             throw new Error("Требуется авторизация");
           }
           if (response.status === 404) {
             throw new Error("Пользователь не найден");
           }
-          throw new Error(errorData.message || `Не удалось загрузить профиль: ${response.status}`);
+          throw new Error(`Не удалось загрузить профиль: ${response.status} ${errorText}`);
         }
 
-        const data: Profile = JSON.parse(responseBody);
-        console.log("[ProfilePage] Profile data:", data);
-        setProfile(data);
-        setIsOwnProfile(!!user && user.id === data.id);
-        setProfileForm({
-          firstName: data.username.split(" ")[0] || "",
-          lastName: data.username.split(" ")[1] || "",
+        const data = await response.json();
+        console.log("[ProfilePage] Raw profile data:", data);
+        const normalizedProfile: Profile = {
+          id: String(data.id),
+          username: data.username || "",
           email: data.email || "",
-          phone: data.phone || "",
-          bio: data.bio || "",
-          location: data.location || "",
-          skills: data.skills || [],
+          profilePicture: data.profilePicture || null,
+          bio: data.bio || null,
+          phone: data.phone || null,
+          location: data.location || null,
+          skills: Array.isArray(data.skills) ? data.skills : [],
+          friendsCount: Number(data.friendsCount) || 0,
+          postsCount: Number(data.postsCount) || 0,
+          eventsCount: Number(data.eventsCount) || 0,
+        };
+        setProfile(normalizedProfile);
+        setIsOwnProfile(!!user && String(user.id) === normalizedProfile.id);
+        setProfileForm({
+          firstName: normalizedProfile.username.split(" ")[0] || "",
+          lastName: normalizedProfile.username.split(" ")[1] || "",
+          email: normalizedProfile.email || "",
+          phone: normalizedProfile.phone || "",
+          bio: normalizedProfile.bio || "",
+          location: normalizedProfile.location || "",
+          skills: normalizedProfile.skills || [],
           newSkill: "",
         });
       } catch (error: any) {
         if (error.name === 'AbortError') return;
-        console.error("[ProfilePage] Error fetching profile:", error);
+        console.error("[ProfilePage] Error fetching profile:", error.message);
         setProfile(null);
         toast({
           title: "Ошибка",
@@ -201,37 +204,53 @@ export default function ProfilePage() {
           signal: controller.signal,
         });
 
+        console.log("[ProfilePage] Posts response:", {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+        });
+
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error("[ProfilePage] Posts fetch failed:", {
-            status: response.status,
-            message: errorData.message || 'No error message',
-            url,
-          });
+          const errorText = await response.text();
+          console.error("[ProfilePage] Posts fetch failed:", response.status, errorText);
           if (response.status === 401) {
             throw new Error("Требуется авторизация");
           }
           if (response.status === 404) {
             throw new Error("Посты пользователя не найдены");
           }
-          throw new Error(errorData.message || `Не удалось загрузить посты: ${response.status}`);
+          throw new Error(`Не удалось загрузить посты: ${response.status} ${errorText}`);
         }
 
         const data = await response.json();
-        console.log(`[ProfilePage] Posts fetched:`, JSON.stringify(data, null, 2));
-        if (!Array.isArray(data)) {
-          console.error("[ProfilePage] Expected array, got:", data);
-          setPosts([]);
-          return;
-        }
-        const filteredPosts = data.map((post: any) => ({
-          ...post,
-          imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls : [],
-        }));
-        setPosts(filteredPosts);
+        console.log("[ProfilePage] Raw posts data:", data);
+        const normalizedPosts: Property[] = Array.isArray(data)
+          ? data.map((post: any) => ({
+              id: Number(post.id),
+              title: post.title || "",
+              description: post.description || "",
+              location: post.location || "",
+              price: Number(post.price) || 0,
+              bedrooms: post.bedrooms ? Number(post.bedrooms) : undefined,
+              bathrooms: post.bathrooms ? Number(post.bathrooms) : undefined,
+              squareMeters: post.squareMeters ? Number(post.squareMeters) : undefined,
+              imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls : [],
+              createdAt: post.createdAt || new Date().toISOString(),
+              authorId: Number(post.authorId),
+              seller: {
+                id: Number(post.seller?.id || post.authorId),
+                name: post.seller?.name || "",
+                email: post.seller?.email || "",
+                phone: post.seller?.phone || null,
+                avatar: post.seller?.avatar || null,
+                skills: Array.isArray(post.seller?.skills) ? post.seller.skills : [],
+              },
+            }))
+          : [];
+        setPosts(normalizedPosts);
       } catch (error: any) {
         if (error.name === 'AbortError') return;
-        console.error("[ProfilePage] Error fetching posts:", error);
+        console.error("[ProfilePage] Error fetching posts:", error.message);
         setPosts([]);
         toast({
           title: "Ошибка",
@@ -260,7 +279,9 @@ export default function ProfilePage() {
       });
       return;
     }
+    const controller = new AbortController();
     try {
+      setLoading(true);
       const url = userId
         ? `http://localhost:5000/api/friends/${userId}`
         : "http://localhost:5000/api/friends";
@@ -269,23 +290,55 @@ export default function ProfilePage() {
       const response = await fetch(url, {
         method: "GET",
         credentials: "include",
+        signal: controller.signal,
+      });
+
+      console.log("[ProfilePage] Friends response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Не удалось загрузить друзей");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Friends fetch failed:", response.status, errorText);
+        if (response.status === 401 || response.status === 403) {
+          toast({
+            title: "Ошибка авторизации",
+            description: "Сессия истекла, войдите снова",
+            variant: "destructive",
+          });
+          router.push("/login");
+          return;
+        }
+        throw new Error(`Не удалось загрузить друзей: ${response.status} ${errorText}`);
       }
 
-      const data: Friend[] = await response.json();
-      setFriends(data);
+      const data = await response.json();
+      console.log("[ProfilePage] Raw friends data:", data);
+      const normalizedFriends: Friend[] = Array.isArray(data)
+        ? data
+            .filter((friend: any) => friend && friend.id)
+            .map((friend: any) => ({
+              id: String(friend.id),
+              username: friend.username || "Unknown",
+              profilePicture: friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : null,
+            }))
+        : [];
+      console.log("[ProfilePage] Normalized friends:", normalizedFriends);
+      setFriends(normalizedFriends);
       setFriendsDialogOpen(true);
     } catch (error: any) {
-      console.error("[ProfilePage] Error fetching friends:", error);
+      if (error.name === 'AbortError') return;
+      console.error("[ProfilePage] Error fetching friends:", error.message);
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось загрузить друзей",
         variant: "destructive",
       });
+      setFriends([]);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -293,14 +346,22 @@ export default function ProfilePage() {
     if (!postToDelete) return;
 
     try {
+      console.log("[ProfilePage] Deleting post:", postToDelete);
       const response = await fetch(`http://localhost:5000/api/posts/${postToDelete}`, {
         method: "DELETE",
         credentials: "include",
       });
 
+      console.log("[ProfilePage] Post delete response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Не удалось удалить пост");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Post delete failed:", response.status, errorText);
+        throw new Error(`Не удалось удалить пост: ${response.status} ${errorText}`);
       }
 
       setPosts(posts.filter(post => post.id !== postToDelete));
@@ -308,7 +369,7 @@ export default function ProfilePage() {
       setPostToDelete(null);
       toast({ title: "Успех", description: "Пост успешно удалён" });
     } catch (error: any) {
-      console.error("[ProfilePage] Error deleting post:", error);
+      console.error("[ProfilePage] Error deleting post:", error.message);
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось удалить пост",
@@ -375,23 +436,34 @@ export default function ProfilePage() {
     formData.append("profilePicture", photoFile);
 
     try {
+      console.log("[ProfilePage] Uploading profile photo");
       const response = await fetch("http://localhost:5000/api/profile/upload-photo", {
         method: "POST",
         credentials: "include",
         body: formData,
       });
 
+      console.log("[ProfilePage] Photo upload response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Не удалось загрузить фото");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Photo upload failed:", response.status, errorText);
+        throw new Error(`Не удалось загрузить фото: ${response.status} ${errorText}`);
       }
 
       const updatedProfile = await response.json();
-      setProfile(updatedProfile);
+      setProfile({
+        ...profile!,
+        profilePicture: updatedProfile.profilePicture || null,
+      });
       setPhotoFile(null);
       toast({ title: "Успех", description: "Фото успешно загружено" });
     } catch (error: any) {
-      console.error("[ProfilePage] Error uploading photo:", error);
+      console.error("[ProfilePage] Error uploading photo:", error.message);
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось загрузить фото",
@@ -421,12 +493,13 @@ export default function ProfilePage() {
     }
 
     try {
+      console.log("[ProfilePage] Saving profile:", profileForm);
       const response = await fetch("http://localhost:5000/api/profile/update", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          username: `${profileForm.firstName} ${profileForm.lastName}`,
+          username: `${profileForm.firstName} ${profileForm.lastName}`.trim(),
           email: profileForm.email,
           phone: profileForm.phone || null,
           bio: profileForm.bio || null,
@@ -435,17 +508,32 @@ export default function ProfilePage() {
         }),
       });
 
+      console.log("[ProfilePage] Profile save response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Не удалось обновить профиль");
+        const errorText = await response.text();
+        console.error("[ProfilePage] Profile save failed:", response.status, errorText);
+        throw new Error(`Не удалось обновить профиль: ${response.status} ${errorText}`);
       }
 
       const updatedProfile = await response.json();
-      setProfile(updatedProfile);
+      setProfile({
+        ...profile!,
+        username: updatedProfile.username,
+        email: updatedProfile.email,
+        phone: updatedProfile.phone || null,
+        bio: updatedProfile.bio || null,
+        location: updatedProfile.location || null,
+        skills: Array.isArray(updatedProfile.skills) ? updatedProfile.skills : [],
+      });
       setEditProfileOpen(false);
       toast({ title: "Успех", description: "Профиль успешно обновлен" });
     } catch (error: any) {
-      console.error("[ProfilePage] Error updating profile:", error);
+      console.error("[ProfilePage] Error updating profile:", error.message);
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось обновить профиль",
@@ -467,6 +555,48 @@ export default function ProfilePage() {
     navigator.clipboard.writeText(profileUrl);
     toast({ title: "Успех", description: "Ссылка на профиль скопирована" });
     setShareDialogOpen(false);
+  };
+
+  const handleAddFriend = async () => {
+    if (!profile || !user) {
+      toast({
+        title: "Ошибка",
+        description: "Необходимо авторизоваться или профиль не загружен",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      console.log("[ProfilePage] Sending friend request to:", profile.id);
+      const response = await fetch("http://localhost:5000/api/friends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ friendId: Number(profile.id) }),
+      });
+
+      console.log("[ProfilePage] Friend request response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[ProfilePage] Friend request failed:", response.status, errorText);
+        throw new Error(`Не удалось отправить запрос: ${response.status} ${errorText}`);
+      }
+
+      toast({ title: "Успех", description: "Запрос в друзья отправлен" });
+    } catch (error: any) {
+      console.error("[ProfilePage] Error sending friend request:", error.message);
+      toast({
+        title: "Ошибка",
+        description: error.message || "Не удалось отправить запрос в друзья",
+        variant: "destructive",
+      });
+    }
   };
 
   if (loading) {
@@ -547,7 +677,17 @@ export default function ProfilePage() {
                   <Badge variant="outline" className="bg-primary/5">{profile.friendsCount || 0}</Badge>
                 </div>
               </div>
-              <div className="mt-6">
+              <div className="mt-6 space-y-2">
+                {!isOwnProfile && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleAddFriend}
+                  >
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Добавить в друзья
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="w-full"
@@ -608,76 +748,74 @@ export default function ProfilePage() {
                     </div>
                     <div>
                       <h2 className="text-lg font-semibold text-primary">Объявления</h2>
-                      {posts && posts.length > 0 ? (
+                      {posts.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                          {posts.map((post) => {
-                            console.log(`[ProfilePage] Rendering post ${post.id}:`, { imageUrls: post.imageUrls });
-                            return (
-                              <Card key={post.id} className="overflow-hidden">
-                                <div className="card-image-container h-48">
+                          {posts.map((post) => (
+                            <Card key={post.id} className="overflow-hidden">
+                              <div className="relative h-32">
+                                <Link href={`/real-estate/${post.id}`}>
+                                  <Image
+                                    src={post.imageUrls[0] || "/placeholder.svg"}
+                                    alt={post.title}
+                                    fill
+                                    className="object-cover"
+                                    sizes="(max-width: 768px) 100vw, 50vw"
+                                  />
+                                </Link>
+                              </div>
+                              <div className="p-4">
+                                <div className="flex justify-between items-start">
                                   <Link href={`/real-estate/${post.id}`}>
-                                    <Image
-                                      src={post.imageUrls.length > 0 ? post.imageUrls[0] : "/placeholder.svg"}
-                                      alt={post.title || "Property"}
-                                      fill
-                                      className="object-cover"
-                                      sizes="(max-width: 768px) 100vw, 50vw"
-                                    />
+                                    <h3 className="text-sm font-semibold hover:underline">
+                                      {post.title}
+                                    </h3>
                                   </Link>
                                   {isOwnProfile && (
                                     <Button
+                                      variant="ghost"
                                       size="icon"
-                                      variant="destructive"
-                                      className="absolute top-2 right-2 h-8 w-8"
                                       onClick={() => {
                                         setPostToDelete(post.id);
                                         setDeleteDialogOpen(true);
                                       }}
                                     >
-                                      <Trash2 className="h-4 w-4" />
+                                      <Trash2 className="h-4 w-4 text-destructive" />
                                     </Button>
                                   )}
                                 </div>
-                                <div className="p-4">
-                                  <Link href={`/real-estate/${post.id}`}>
-                                    <h3 className="text-sm font-semibold hover:underline">
-                                      {post.title || "Без названия"}
-                                    </h3>
-                                  </Link>
-                                  <p className="text-xs text-gray-600 mb-2">
-                                    {post.description?.slice(0, 50)}...
-                                  </p>
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <MapPin className="h-3 w-3 text-primary" />
-                                    <span className="text-xs">{post.location || "Не указано"}</span>
-                                  </div>
-                                  <div className="flex gap-3 mb-2">
-                                    {post.bedrooms && (
-                                      <div className="flex items-center gap-1">
-                                        <Bed className="h-3 w-3 text-primary" />
-                                        <span className="text-xs">{post.bedrooms}</span>
-                                      </div>
-                                    )}
-                                    {post.bathrooms && (
-                                      <div className="flex items-center gap-1">
-                                        <Bath className="h-3 w-3 text-primary" />
-                                        <span className="text-xs">{post.bathrooms}</span>
-                                      </div>
-                                    )}
-                                    {post.squareMeters && (
-                                      <div className="flex items-center gap-1">
-                                        <SquareIcon className="h-3 w-3 text-primary" />
-                                        <span className="text-xs">{post.squareMeters} м²</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <span className="text-sm font-bold text-primary">
-                                    €{post.price.toLocaleString()}
-                                  </span>
+                                <p className="text-xs text-gray-600 mb-2">
+                                  {post.description.slice(0, 50)}...
+                                </p>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <MapPin className="h-3 w-3 text-primary" />
+                                  <span className="text-xs">{post.location}</span>
                                 </div>
-                              </Card>
-                            );
-                          })}
+                                <div className="flex gap-3 mb-2">
+                                  {post.bedrooms && (
+                                    <div className="flex items-center gap-1">
+                                      <Bed className="h-3 w-3 text-primary" />
+                                      <span className="text-xs">{post.bedrooms}</span>
+                                    </div>
+                                  )}
+                                  {post.bathrooms && (
+                                    <div className="flex items-center gap-1">
+                                      <Bath className="h-3 w-3 text-primary" />
+                                      <span className="text-xs">{post.bathrooms}</span>
+                                    </div>
+                                  )}
+                                  {post.squareMeters && (
+                                    <div className="flex items-center gap-1">
+                                      <SquareIcon className="h-3 w-3 text-primary" />
+                                      <span className="text-xs">{post.squareMeters} м²</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="text-sm font-bold text-primary">
+                                  €{post.price.toLocaleString()}
+                                </span>
+                              </div>
+                            </Card>
+                          ))}
                         </div>
                       ) : (
                         <p className="text-muted-foreground mt-4">Объявления отсутствуют</p>
@@ -715,206 +853,132 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {isOwnProfile && (
-          <>
-            <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
-              <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <UserPlus className="h-5 w-5 text-primary" />
-                    Редактировать профиль
-                  </DialogTitle>
-                  <DialogDescription>Обновите вашу личную информацию.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="flex flex-col items-center gap-4">
-                    <Avatar className="h-24 w-24 border-4 border-primary/20">
-                      <AvatarImage
-                        src={
-                          photoFile
-                            ? URL.createObjectURL(photoFile)
-                            : profile.profilePicture ? `http://localhost:5000${profile.profilePicture}` : "/placeholder.svg?height=96&width=96"
-                        }
-                        alt="Профиль"
-                      />
-                      <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
-                        {profile.username.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex gap-2">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={handlePhotoChange}
-                        className="w-auto"
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleUploadPhoto}
-                        disabled={!photoFile}
-                      >
-                        <Upload className="mr-2 h-4 w-4" />
-                        Загрузить
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName">Имя</Label>
-                      <Input
-                        id="firstName"
-                        name="firstName"
-                        value={profileForm.firstName}
-                        onChange={handleInputChange}
-                        className={errors.firstName ? "border-red-500" : ""}
-                      />
-                      {errors.firstName && (
-                        <p className="text-red-500 text-sm">{errors.firstName}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastName">Фамилия</Label>
-                      <Input
-                        id="lastName"
-                        name="lastName"
-                        value={profileForm.lastName}
-                        onChange={handleInputChange}
-                        className={errors.lastName ? "border-red-500" : ""}
-                      />
-                      {errors.lastName && (
-                        <p className="text-red-500 text-sm">{errors.lastName}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      value={profileForm.email}
-                      onChange={handleInputChange}
-                      className={errors.email ? "border-red-500" : ""}
-                    />
-                    {errors.email && (
-                      <p className="text-red-500 text-sm">{errors.email}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Телефон</Label>
-                    <Input
-                      id="phone"
-                      name="phone"
-                      value={profileForm.phone}
-                      onChange={handleInputChange}
-                      className={errors.phone ? "border-red-500" : ""}
-                      placeholder="+1234567890"
-                    />
-                    {errors.phone && (
-                      <p className="text-red-500 text-sm">{errors.phone}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="bio">Биография</Label>
-                    <Textarea
-                      id="bio"
-                      name="bio"
-                      value={profileForm.bio}
-                      onChange={handleInputChange}
-                      className={errors.bio ? "border-red-500" : ""}
-                      placeholder="Расскажите о себе"
-                    />
-                    {errors.bio && (
-                      <p className="text-red-500 text-sm">{errors.bio}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="location">Локация</Label>
-                    <Input
-                      id="location"
-                      name="location"
-                      value={profileForm.location}
-                      onChange={handleInputChange}
-                      className={errors.location ? "border-red-500" : ""}
-                      placeholder="Город, Страна"
-                    />
-                    {errors.location && (
-                      <p className="text-red-500 text-sm">{errors.location}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Навыки</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        name="newSkill"
-                        value={profileForm.newSkill}
-                        onChange={handleInputChange}
-                        placeholder="Новый навык"
-                      />
-                      <Button onClick={handleAddSkill}>Добавить</Button>
-                    </div>
-                    {errors.skills && (
-                      <p className="text-red-500 text-sm">{errors.skills}</p>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {profileForm.skills.map((skill, index) => (
-                        <Badge
-                          key={index}
-                          className="bg-primary/10 text-primary flex items-center gap-1"
-                        >
-                          {skill}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4"
-                            onClick={() => handleRemoveSkill(skill)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
+        <Dialog open={editProfileOpen} onOpenChange={setEditProfileOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Редактировать профиль</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="firstName">Имя</Label>
+                <Input
+                  id="firstName"
+                  name="firstName"
+                  value={profileForm.firstName}
+                  onChange={handleInputChange}
+                  placeholder="Введите имя"
+                />
+                {errors.firstName && <p className="text-sm text-destructive">{errors.firstName}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="lastName">Фамилия</Label>
+                <Input
+                  id="lastName"
+                  name="lastName"
+                  value={profileForm.lastName}
+                  onChange={handleInputChange}
+                  placeholder="Введите фамилию"
+                />
+                {errors.lastName && <p className="text-sm text-destructive">{errors.lastName}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  value={profileForm.email}
+                  onChange={handleInputChange}
+                  placeholder="Введите email"
+                />
+                {errors.email && <p className="text-sm text-destructive">{errors.email}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="phone">Телефон</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  value={profileForm.phone}
+                  onChange={handleInputChange}
+                  placeholder="+1234567890"
+                />
+                {errors.phone && <p className="text-sm text-destructive">{errors.phone}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="bio">Биография</Label>
+                <Textarea
+                  id="bio"
+                  name="bio"
+                  value={profileForm.bio}
+                  onChange={handleInputChange}
+                  placeholder="Расскажите о себе"
+                />
+                {errors.bio && <p className="text-sm text-destructive">{errors.bio}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="location">Локация</Label>
+                <Input
+                  id="location"
+                  name="location"
+                  value={profileForm.location}
+                  onChange={handleInputChange}
+                  placeholder="Город, Страна"
+                />
+                {errors.location && <p className="text-sm text-destructive">{errors.location}</p>}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="newSkill">Навыки</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="newSkill"
+                    name="newSkill"
+                    value={profileForm.newSkill}
+                    onChange={handleInputChange}
+                    placeholder="Введите навык"
+                    onKeyPress={(e) => e.key === "Enter" && handleAddSkill()}
+                  />
+                  <Button onClick={handleAddSkill}>Добавить</Button>
                 </div>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => setEditProfileOpen(false)}
-                  >
-                    Отмена
+                {errors.skills && <p className="text-sm text-destructive">{errors.skills}</p>}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {profileForm.skills.map((skill, index) => (
+                    <Badge
+                      key={index}
+                      className="flex items-center gap-1 bg-primary/10 text-primary"
+                    >
+                      {skill}
+                      <X
+                        className="h-3 w-3 cursor-pointer"
+                        onClick={() => handleRemoveSkill(skill)}
+                      />
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="photo">Фото профиля</Label>
+                <Input
+                  id="photo"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                />
+                {photoFile && (
+                  <Button onClick={handleUploadPhoto} className="mt-2">
+                    <Upload className="mr-2 h-4 w-4" />
+                    Загрузить фото
                   </Button>
-                  <Button onClick={handleSaveProfile}>Сохранить</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Удалить пост</DialogTitle>
-                  <DialogDescription>
-                    Вы уверены, что хотите удалить этот пост? Это действие нельзя отменить.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setDeleteDialogOpen(false);
-                      setPostToDelete(null);
-                    }}
-                  >
-                    Отмена
-                  </Button>
-                  <Button variant="destructive" onClick={handleDeletePost}>
-                    Удалить
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </>
-        )}
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditProfileOpen(false)}>
+                Отмена
+              </Button>
+              <Button onClick={handleSaveProfile}>Сохранить</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
           <DialogContent className="sm:max-w-[425px]">
@@ -925,10 +989,7 @@ export default function ProfilePage() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <Input
-                readOnly
-                value={profile ? `http://localhost:3000/profile/${profile.id}` : ""}
-              />
+              <Input readOnly value={`http://localhost:3000/profile/${profile?.id || ""}`} />
             </div>
             <DialogFooter>
               <Button onClick={handleShareProfile}>Копировать ссылку</Button>
@@ -953,7 +1014,7 @@ export default function ProfilePage() {
                   >
                     <Avatar className="h-10 w-10">
                       <AvatarImage
-                        src={friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : "/placeholder.svg?height=40&width=40"}
+                        src={friend.profilePicture || "/placeholder.svg?height=40&width=40"}
                         alt={friend.username}
                       />
                       <AvatarFallback>{friend.username.slice(0, 2).toUpperCase()}</AvatarFallback>
@@ -963,6 +1024,25 @@ export default function ProfilePage() {
                 ))
               )}
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Удалить пост</DialogTitle>
+              <DialogDescription>
+                Вы уверены, что хотите удалить этот пост? Это действие нельзя отменить.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                Отмена
+              </Button>
+              <Button variant="destructive" onClick={handleDeletePost}>
+                Удалить
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

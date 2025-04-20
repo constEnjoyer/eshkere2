@@ -1,43 +1,53 @@
-const router = require('express').Router();
-const controller = require('../controllers/authController');
-const { check } = require('express-validator');
+const express = require('express');
+const router = express.Router();
+const authController = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
-const roleMiddleware = require('../middleware/roleMiddleware');
-const path = require('path');
+const { check } = require('express-validator');
 
-// Публичные маршруты (доступны без авторизации)
-router.post('/registration', [
-    check('username', 'Username cannot be empty').notEmpty(),
-    check('email', 'Email cannot be empty').notEmpty(),
-    check('password', 'Password must be at least 4 characters').isLength({ min: 4, max: 12 }),
-], controller.registration);
+// Регистрация
+router.post(
+    '/registration', [
+        check('username', 'Имя пользователя не может быть пустым').notEmpty(),
+        check('password', 'Пароль должен быть от 4 до 20 символов').isLength({ min: 4, max: 20 }),
+        check('email', 'Недействительный email').isEmail(),
+    ],
+    authController.registration
+);
 
-router.post('/login', controller.login);
+// Логин
+router.post('/login', authController.login);
 
-router.get('/activate', controller.activateAccount);
+// Выход
+router.post('/logout', authController.logout);
 
-router.post('/request-password-reset', [
-    check('email', 'Email must be valid').notEmpty().isEmail(),
-], controller.requestPasswordReset);
+// Получение списка пользователей
+router.get('/users', authMiddleware, authController.getUsers);
 
-router.get('/forgot-password/:token', (req, res) => {
-    const { token } = req.params;
-    if (!token) {
-        return res.status(400).send('Token is required');
-    }
-    res.redirect(`http://localhost:3000/forgot-password/${token}`);
-});
+// Получение текущего пользователя
+router.get('/user', authMiddleware, authController.getUser);
 
-router.post('/forgot-password', [
-    check('token', 'Token is required').notEmpty(),
-    check('newPassword', 'Password must be at least 4 characters').isLength({ min: 4 }),
-], controller.resetPassword);
+// Обновление профиля
+router.put('/user', authMiddleware, authController.updateUser);
 
-router.post('/verify', controller.verifyToken);
-router.get('/user', authMiddleware, controller.getUser);
+// Активация аккаунта
+router.get('/activate', authController.activateAccount);
 
-// Защищённые маршруты (требуют авторизации)
-router.post('/logout', controller.logout);
-router.get('/users', authMiddleware, roleMiddleware(['admin']), controller.getUsers);
+// Запрос сброса пароля
+router.post(
+    '/request-password-reset', [check('email', 'Недействительный email').isEmail()],
+    authController.requestPasswordReset
+);
+
+// Сброс пароля
+router.post(
+    '/reset-password', [
+        check('newPassword', 'Пароль должен быть от 4 до 20 символов').isLength({ min: 4, max: 20 }),
+        check('token', 'Токен обязателен').notEmpty(),
+    ],
+    authController.resetPassword
+);
+
+// Проверка токена
+router.post('/verify', authController.verifyToken);
 
 module.exports = router;

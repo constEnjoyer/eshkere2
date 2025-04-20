@@ -120,6 +120,12 @@ export default function ProfilePage() {
           signal: controller.signal,
         });
 
+        console.log("[ProfilePage] Profile response:", {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+        });
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[ProfilePage] Profile fetch failed:", response.status, errorText);
@@ -132,7 +138,7 @@ export default function ProfilePage() {
             router.push("/login");
             return;
           }
-          throw new Error(`Не удалось загрузить профиль: ${response.status}`);
+          throw new Error(`Не удалось загрузить профиль: ${response.status} ${errorText}`);
         }
 
         const data = await response.json();
@@ -185,6 +191,12 @@ export default function ProfilePage() {
           signal: controller.signal,
         });
 
+        console.log("[ProfilePage] Posts response:", {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+        });
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[ProfilePage] Posts fetch failed:", response.status, errorText);
@@ -197,7 +209,7 @@ export default function ProfilePage() {
             router.push("/login");
             return;
           }
-          throw new Error(`Не удалось загрузить посты: ${response.status}`);
+          throw new Error(`Не удалось загрузить посты: ${response.status} ${errorText}`);
         }
 
         const data = await response.json();
@@ -259,6 +271,12 @@ export default function ProfilePage() {
         signal: controller.signal,
       });
 
+      console.log("[ProfilePage] Friends response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Friends fetch failed:", response.status, errorText);
@@ -271,17 +289,19 @@ export default function ProfilePage() {
           router.push("/login");
           return;
         }
-        throw new Error(`Не удалось загрузить друзей: ${response.status}`);
+        throw new Error(`Не удалось загрузить друзей: ${response.status} ${errorText}`);
       }
 
       const data = await response.json();
       console.log("[ProfilePage] Raw friends data:", data);
       const normalizedFriends: Friend[] = Array.isArray(data)
-        ? data.map((friend: any) => ({
-            id: String(friend.id),
-            username: friend.username || "",
-            profilePicture: friend.profilePicture || null,
-          }))
+        ? data
+            .filter((friend: any) => friend && friend.id)
+            .map((friend: any) => ({
+              id: String(friend.id),
+              username: friend.username || "Unknown",
+              profilePicture: friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : null,
+            }))
         : [];
       console.log("[ProfilePage] Normalized friends:", normalizedFriends);
       setFriends(normalizedFriends);
@@ -294,10 +314,10 @@ export default function ProfilePage() {
         description: error.message || "Не удалось загрузить друзей",
         variant: "destructive",
       });
+      setFriends([]);
     } finally {
       setLoading(false);
     }
-    return () => controller.abort();
   };
 
   const handleShareProfile = () => {
@@ -351,10 +371,10 @@ export default function ProfilePage() {
     setProfileForm({
       ...profileForm,
       skills: profileForm.skills.filter((skill) => skill !== skillToRemove),
-    });
-  };
+  });
+};
 
-  const handleSaveProfile = async () => {
+const handleSaveProfile = async () => {
     if (!profile || !validateForm()) {
       toast({
         title: "Ошибка",
@@ -379,6 +399,12 @@ export default function ProfilePage() {
         credentials: "include",
       });
 
+      console.log("[ProfilePage] Profile save response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Profile save failed:", response.status, errorText);
@@ -391,21 +417,18 @@ export default function ProfilePage() {
           router.push("/login");
           return;
         }
-        throw new Error(`Не удалось обновить профиль: ${response.status}`);
+        throw new Error(`Не удалось обновить профиль: ${response.status} ${errorText}`);
       }
 
       const updatedProfile = await response.json();
       console.log("[ProfilePage] Profile updated:", updatedProfile);
       setProfile({
-        ...updatedProfile,
-        skills: Array.isArray(updatedProfile.skills) ? updatedProfile.skills : [],
-        profilePicture: updatedProfile.profilePicture || null,
+        ...profile,
+        username: updatedProfile.username,
         bio: updatedProfile.bio || null,
         phone: updatedProfile.phone || null,
         location: updatedProfile.location || null,
-        friendsCount: Number(updatedProfile.friendsCount) || 0,
-        postsCount: Number(updatedProfile.postsCount) || 0,
-        eventsCount: Number(updatedProfile.eventsCount) || 0,
+        skills: Array.isArray(updatedProfile.skills) ? updatedProfile.skills : [],
       });
       setEditProfileOpen(false);
       toast({ title: "Успех", description: "Профиль обновлен" });
@@ -428,6 +451,12 @@ export default function ProfilePage() {
         credentials: "include",
       });
 
+      console.log("[ProfilePage] Post delete response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Post delete failed:", response.status, errorText);
@@ -440,7 +469,7 @@ export default function ProfilePage() {
           router.push("/login");
           return;
         }
-        throw new Error(`Не удалось удалить пост: ${response.status}`);
+        throw new Error(`Не удалось удалить пост: ${response.status} ${errorText}`);
       }
 
       setPosts((prev) => prev.filter((p) => p.id !== postToDelete));
@@ -481,7 +510,7 @@ export default function ProfilePage() {
     );
   }
 
-  console.log("[ProfilePage] Rendering profile for:", profile.username, { postCount: posts.length });
+  console.log("[ProfilePage] Rendering profile for:", profile.username, { postCount: posts.length, friendsCount: profile.friendsCount });
 
   return (
     <div className="container px-4 py-8 md:px-6 md:py-12">
@@ -815,7 +844,7 @@ export default function ProfilePage() {
                 >
                   <Avatar className="h-10 w-10">
                     <AvatarImage
-                      src={friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : "/placeholder.svg?height=40&width=40"}
+                      src={friend.profilePicture || "/placeholder.svg?height=40&width=40"}
                       alt={friend.username}
                     />
                     <AvatarFallback>{friend.username.slice(0, 2).toUpperCase()}</AvatarFallback>

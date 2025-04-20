@@ -101,6 +101,12 @@ export default function ChatPage() {
           signal: controller.signal,
         });
 
+        console.log("[ChatPage] Friends response:", {
+          status: friendsResponse.status,
+          ok: friendsResponse.ok,
+          headers: Object.fromEntries(friendsResponse.headers.entries()),
+        });
+
         if (!friendsResponse.ok) {
           const text = await friendsResponse.text();
           console.error("[ChatPage] Friends fetch failed:", {
@@ -148,6 +154,12 @@ export default function ChatPage() {
               signal: controller.signal,
             });
 
+            console.log("[ChatPage] User response:", {
+              status: userResponse.status,
+              ok: userResponse.ok,
+              headers: Object.fromEntries(userResponse.headers.entries()),
+            });
+
             if (!userResponse.ok) {
               const text = await userResponse.text();
               console.error("[ChatPage] User fetch failed:", {
@@ -156,7 +168,7 @@ export default function ChatPage() {
                 responseText: text.slice(0, 200),
                 cookies: document.cookie,
               });
-              if (userResponse.status === 401 || friendsResponse.status === 403) {
+              if (userResponse.status === 401 || userResponse.status === 403) {
                 toast({
                   title: "Ошибка авторизации",
                   description: "Сессия истекла, войдите снова",
@@ -215,9 +227,11 @@ export default function ChatPage() {
 
     fetchContacts();
 
-    console.log("[ChatPage] Initializing Socket.IO, checking cookies:", document.cookie);
+    console.log("[ChatPage] Initializing Socket.IO");
     const newSocket = io("http://localhost:5000", {
-      auth: { withCredentials: true },
+      auth: {
+        token: `Bearer ${document.cookie}`
+      },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: 5,
@@ -272,6 +286,7 @@ export default function ChatPage() {
       console.error("[ChatPage] Socket connect_error:", {
         error: error || "No error data",
         message: error?.message || "Unknown error",
+        stack: error?.stack || "No stack",
         cookies: document.cookie,
       });
       toast({
@@ -304,6 +319,12 @@ export default function ChatPage() {
             "Accept": "application/json",
           },
           signal: controller.signal,
+        });
+
+        console.log("[ChatPage] Messages response:", {
+          status: response.status,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
         });
 
         if (!response.ok) {
@@ -362,6 +383,11 @@ export default function ChatPage() {
 
   const handleSendMessage = async () => {
     if (!message.trim() || !activeChat || !user) {
+      console.log("[ChatPage] Cannot send message:", {
+        message: !!message.trim(),
+        activeChat: !!activeChat,
+        user: !!user,
+      });
       toast({
         title: "Ошибка",
         description: "Сообщение или получатель не указаны",
@@ -370,8 +396,19 @@ export default function ChatPage() {
       return;
     }
 
+    const friendId = parseInt(activeChat, 10);
+    if (isNaN(friendId)) {
+      console.error("[ChatPage] Invalid friendId:", activeChat);
+      toast({
+        title: "Ошибка",
+        description: "Недействительный ID получателя",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      console.log("[ChatPage] Sending message:", { friendId: activeChat, content: message });
+      console.log("[ChatPage] Sending message:", { friendId, content: message });
       const response = await fetch("http://localhost:5000/api/messages", {
         method: "POST",
         headers: {
@@ -379,7 +416,13 @@ export default function ChatPage() {
           "Accept": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify({ friendId: parseInt(activeChat), content: message }),
+        body: JSON.stringify({ friendId, content: message }),
+      });
+
+      console.log("[ChatPage] Message send response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
       });
 
       if (!response.ok) {
@@ -434,135 +477,193 @@ export default function ChatPage() {
     }
   };
 
+  const handleSelectChat = (contactId: string) => {
+    console.log("[ChatPage] Selecting chat:", contactId);
+    setActiveChat(contactId);
+    setShowMobileContacts(false);
+  };
+
+  const handleBackToContacts = () => {
+    console.log("[ChatPage] Back to contacts");
+    setShowMobileContacts(true);
+  };
+
+  const handleCloseChat = () => {
+    console.log("[ChatPage] Closing chat");
+    setActiveChat(null);
+    setShowMobileContacts(true);
+  };
+
   if (isLoading) {
-    return <div className="container px-4 py-8">Загрузка авторизации...</div>;
+    console.log("[ChatPage] Rendering: isLoading");
+    return <div className="container px-4 py-8">Проверка авторизации...</div>;
   }
 
   if (!user) {
+    console.log("[ChatPage] Rendering: no user");
     return <div className="container px-4 py-8">Необходимо войти в систему</div>;
   }
 
   if (loading) {
+    console.log("[ChatPage] Rendering: loading");
     return <div className="container px-4 py-8">Загрузка...</div>;
   }
 
+  console.log("[ChatPage] Rendering with contacts:", contacts.length, "activeChat:", activeChat);
+
   return (
     <ProtectedRoute>
-      <div className="flex h-screen flex-col md:flex-row">
-        <div
+      <div className="flex h-[calc(100vh-4rem)] max-w-7xl mx-auto">
+        <motion.div
           className={cn(
-            "w-full md:w-1/3 lg:w-1/4 bg-gray-100 p-4 overflow-y-auto",
+            "w-full md:w-1/3 border-r flex flex-col bg-white dark:bg-gray-900",
             showMobileContacts ? "block" : "hidden md:block"
           )}
+          initial={{ x: -100, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
         >
-          <h2 className="text-lg font-semibold mb-4">Чаты</h2>
-          {contacts.length === 0 ? (
-            <p className="text-gray-500">Нет контактов</p>
-          ) : (
-            contacts.map((contact) => (
-              <div
-                key={contact.id}
-                className={cn(
-                  "flex items-center p-2 rounded-lg cursor-pointer",
-                  activeChat === contact.id ? "bg-gray-200" : "hover:bg-gray-200"
-                )}
-                onClick={() => {
-                  setActiveChat(contact.id);
-                  setShowMobileContacts(false);
-                }}
-              >
-                <Avatar className="h-10 w-10 mr-3">
-                  <AvatarImage src={contact.avatar} alt={contact.name} />
-                  <AvatarFallback>{contact.name[0]}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-medium">{contact.name}</p>
-                  <p className="text-sm text-gray-500">{contact.online ? "Online" : "Offline"}</p>
-                </div>
+          <div className="p-4 border-b">
+            <h2 className="text-lg font-semibold">Чаты</h2>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {contacts.length === 0 ? (
+              <div className="p-4 text-center text-muted-foreground">
+                Нет контактов. Добавьте друзей, чтобы начать чат.
               </div>
-            ))
-          )}
-        </div>
+            ) : (
+              contacts.map((contact) => (
+                <div
+                  key={contact.id}
+                  className={cn(
+                    "flex items-center p-4 cursor-pointer hover:bg-muted",
+                    activeChat === contact.id && "bg-muted"
+                  )}
+                  onClick={() => handleSelectChat(contact.id)}
+                >
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={contact.avatar} alt={contact.name} />
+                    <AvatarFallback>{contact.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="ml-3 flex-1">
+                    <div className="flex justify-between">
+                      <span className="font-medium">{contact.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {contact.online ? "Онлайн" : "Оффлайн"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </motion.div>
 
-        <div className="flex-1 flex flex-col bg-white">
+        <motion.div
+          className={cn(
+            "flex-1 flex flex-col",
+            showMobileContacts ? "hidden" : "block"
+          )}
+          initial={{ x: 100, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3 }}
+        >
           {activeChat ? (
             <>
-              <div className="p-4 border-b flex items-center justify-between">
+              <div className="p-4 border-b flex items-center justify-between bg-white dark:bg-gray-900">
                 <div className="flex items-center">
                   <Button
                     variant="ghost"
                     size="icon"
                     className="md:hidden mr-2"
-                    onClick={() => setShowMobileContacts(true)}
+                    onClick={handleBackToContacts}
                   >
-                    <ChevronLeft className="h-6 w-6" />
+                    <ChevronLeft className="h-5 w-5" />
                   </Button>
-                  <Avatar className="h-10 w-10 mr-3">
+                  <Avatar className="h-8 w-8">
                     <AvatarImage
                       src={contacts.find((c) => c.id === activeChat)?.avatar}
                       alt={contacts.find((c) => c.id === activeChat)?.name}
                     />
                     <AvatarFallback>
-                      {contacts.find((c) => c.id === activeChat)?.name[0]}
+                      {contacts.find((c) => c.id === activeChat)?.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div>
-                    <p className="font-medium">{contacts.find((c) => c.id === activeChat)?.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {contacts.find((c) => c.id === activeChat)?.online ? "Online" : "Offline"}
-                    </p>
-                  </div>
+                  <span className="ml-3 font-medium">
+                    {contacts.find((c) => c.id === activeChat)?.name}
+                  </span>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setActiveChat(null)}>
-                  <X className="h-6 w-6" />
+                <Button variant="ghost" size="icon" onClick={handleCloseChat}>
+                  <X className="h-5 w-5" />
                 </Button>
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
-                {(messages[activeChat] || []).map((msg) => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={cn(
-                      "mb-4 flex",
-                      msg.sender === "me" ? "justify-end" : "justify-start"
-                    )}
-                  >
-                    <div
+                {messages[activeChat]?.length ? (
+                  messages[activeChat].map((msg) => (
+                    <motion.div
+                      key={msg.id}
                       className={cn(
-                        "max-w-xs p-3 rounded-lg",
-                        msg.sender === "me" ? "bg-primary text-white" : "bg-gray-200"
+                        "mb-4 flex",
+                        msg.sender === "me" ? "justify-end" : "justify-start"
                       )}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
                     >
-                      <p>{msg.text}</p>
-                      <p className="text-xs mt-1 opacity-70">{msg.time}</p>
-                    </div>
-                  </motion.div>
-                ))}
+                      <div
+                        className={cn(
+                          "max-w-[70%] rounded-lg p-3",
+                          msg.sender === "me"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted"
+                        )}
+                      >
+                        <p>{msg.text}</p>
+                        <div className="text-xs text-muted-foreground mt-1 flex justify-between">
+                          <span>{msg.time}</span>
+                          {msg.sender === "me" && (
+                            <span>{msg.status === "sent" ? "Отправлено" : "Прочитано"}</span>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="text-center text-muted-foreground">
+                    Нет сообщений. Начните разговор!
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
-              <div className="p-4 border-t flex items-center">
-                <Input
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Введите сообщение..."
-                  className="flex-1 mr-2"
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                />
-                <Button onClick={handleSendMessage}>
-                  <Send className="h-4 w-4" />
-                </Button>
+              <div className="p-4 border-t bg-white dark:bg-gray-900">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }}
+                  className="flex gap-2"
+                >
+                  <Input
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Введите сообщение..."
+                    className="flex-1"
+                  />
+                  <Button type="submit" size="icon">
+                    <Send className="h-5 w-5" />
+                  </Button>
+                </form>
               </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <MessageSquare className="h-12 w-12 mx-auto mb-2" />
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <MessageSquare className="h-12 w-12 mx-auto mb-4" />
                 <p>Выберите чат, чтобы начать общение</p>
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
       </div>
     </ProtectedRoute>
   );

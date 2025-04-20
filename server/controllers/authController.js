@@ -8,11 +8,12 @@ require('dotenv').config();
 
 // Генерация токена с учетом "Remember Me"
 const generateAccessToken = (id, roles, rememberMe = false) => {
-    const payload = { id, roles };
+    const payload = { id: id.toString(), roles };
     const expiresIn = rememberMe ? '30d' : '24h';
     if (!process.env.SECRET_KEY) {
         throw new Error('SECRET_KEY is not defined in environment variables');
     }
+    console.log('[generateAccessToken] Generating token:', { id, roles, expiresIn });
     return jwt.sign(payload, process.env.SECRET_KEY, { expiresIn });
 };
 
@@ -21,7 +22,8 @@ const generateTokenAndLink = (userId, purpose = 'activate') => {
     if (!process.env.SECRET_KEY) {
         throw new Error('SECRET_KEY is not defined in environment variables');
     }
-    const token = jwt.sign({ id: userId, purpose }, process.env.SECRET_KEY, { expiresIn: '1h' });
+    const token = jwt.sign({ id: userId.toString(), purpose }, process.env.SECRET_KEY, { expiresIn: '1h' });
+    console.log('[generateTokenAndLink] Generated token for:', { userId, purpose });
     if (purpose === 'reset') {
         return `${process.env.CLIENT_URL}/forgot-password/${token}`;
     }
@@ -91,7 +93,7 @@ class AuthController {
             const token = generateAccessToken(user.id, roles, rememberMe);
 
             res.cookie('jwt', token, {
-                httpOnly: false, // Временно, чтобы cookie было видно в document.cookie
+                httpOnly: false,
                 secure: false,
                 sameSite: 'lax',
                 maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
@@ -174,14 +176,14 @@ class AuthController {
                 return res.status(400).json({ message: 'Недействительное назначение токена' });
             }
 
-            const user = await prisma.users.findUnique({ where: { id: decoded.id } });
+            const user = await prisma.users.findUnique({ where: { id: parseInt(decoded.id) } });
             if (!user || user.isActive) {
                 console.log('[GET /api/auth/activate] User not found or already activated:', decoded.id);
                 return res.status(400).json({ message: 'Пользователь не найден или уже активирован' });
             }
 
             await prisma.users.update({
-                where: { id: decoded.id },
+                where: { id: parseInt(decoded.id) },
                 data: { isActive: true },
             });
 
@@ -197,7 +199,7 @@ class AuthController {
         try {
             console.log('[POST /api/auth/logout] Logging out');
             res.clearCookie('jwt', {
-                httpOnly: true,
+                httpOnly: false,
                 secure: false,
                 sameSite: 'lax',
             });
@@ -247,7 +249,7 @@ class AuthController {
                 return res.json({ message: 'Если email существует, ссылка для сброса пароля будет отправлена' });
             }
 
-            const resetToken = jwt.sign({ id: user.id, purpose: 'reset' }, process.env.SECRET_KEY, { expiresIn: '30m' });
+            const resetToken = jwt.sign({ id: user.id.toString(), purpose: 'reset' }, process.env.SECRET_KEY, { expiresIn: '30m' });
 
             await prisma.passwordResetToken.create({
                 data: {
@@ -335,10 +337,10 @@ class AuthController {
 
     async getUser(req, res) {
         try {
-            const userId = req.user.id;
-            console.log('[GET /api/auth/user] Fetching user:', { userId, cookie: req.cookies.jwt });
+            const userId = parseInt(req.user.id, 10);
+            console.log('[GET /api/auth/user] Fetching user:', { userId, user: req.user, cookie: req.cookies.jwt });
 
-            if (!userId) {
+            if (isNaN(userId)) {
                 console.error('[GET /api/auth/user] Invalid userId:', req.user.id);
                 return res.status(400).json({ message: 'Недействительный ID пользователя' });
             }
@@ -379,6 +381,65 @@ class AuthController {
             return res.json(formattedUser);
         } catch (error) {
             console.error('[GET /api/auth/user] Error:', error.message, error.stack);
+            res.status(500).json({ message: 'Ошибка сервера', error: error.message });
+        }
+    }
+
+    async updateUser(req, res) {
+        try {
+            const userId = parseInt(req.user.id, 10);
+            const { username, bio, phone, location, skills } = req.body;
+            console.log('[PUT /api/auth/user] Updating user:', { userId, username, bio, phone, location, skills });
+
+            if (isNaN(userId)) {
+                console.log('[PUT /api/auth/user] Invalid userId:', req.user.id);
+                return res.status(400).json({ message: 'Недействительный ID пользователя' });
+            }
+
+            const user = await prisma.users.findUnique({ where: { id: userId } });
+            if (!user) {
+                console.log('[PUT /api/auth/user] User not found:', userId);
+                return res.status(404).json({ message: 'Пользователь не найден' });
+            }
+
+            const updatedUser = await prisma.users.update({
+                where: { id: userId },
+                data: {
+                    username: username || user.username,
+                    bio: bio !== undefined ? bio : user.bio,
+                    phone: phone !== undefined ? phone : user.phone,
+                    location: location !== undefined ? location : user.location,
+                    skills: skills !== undefined ? skills : user.skills,
+                },
+                include: {
+                    user_roles: { include: { roles: true } },
+                    userFriendships: { where: { status: 'accepted' } },
+                    friendFriendships: { where: { status: 'accepted' } },
+                    posts: { select: { id: true } },
+                },
+            });
+
+            const formattedUser = {
+                id: updatedUser.id.toString(),
+                username: updatedUser.username,
+                email: updatedUser.email,
+                roles: updatedUser.user_roles.map(ur => ur.roles.value),
+                isActive: updatedUser.isActive,
+                profilePicture: updatedUser.profilePicture ? `http://localhost:5000${updatedUser.profilePicture}` : null,
+                bio: updatedUser.bio || '',
+                phone: updatedUser.phone || '',
+                location: updatedUser.location || '',
+                age: updatedUser.age || null,
+                skills: updatedUser.skills || [],
+                friendsCount: updatedUser.userFriendships.length + updatedUser.friendFriendships.length,
+                postsCount: updatedUser.posts.length,
+                eventsCount: updatedUser.posts.length,
+            };
+
+            console.log('[PUT /api/auth/user] User updated:', { id: formattedUser.id, username: formattedUser.username });
+            res.json(formattedUser);
+        } catch (error) {
+            console.error('[PUT /api/auth/user] Error:', error.message, error.stack);
             res.status(500).json({ message: 'Ошибка сервера', error: error.message });
         }
     }
