@@ -137,7 +137,7 @@ export default function HomePage() {
           toast({ title: "Ошибка", description: "Не удалось загрузить посты", variant: "destructive" });
         }
         setFeedPosts(posts);
-        setFilteredPosts(posts); // Изначально без фильтра
+        setFilteredPosts(posts);
       } catch (error: any) {
         console.error("[HomePage] Error:", error.message, error.stack);
         toast({ title: "Ошибка", description: "Произошла ошибка при загрузке данных", variant: "destructive" });
@@ -250,6 +250,8 @@ export default function HomePage() {
                       <AvatarImage
                         src={agent.profilePicture || "/placeholder.svg?height=48&width=48"}
                         alt={agent.username}
+                        onLoad={() => console.log(`[HomePage] Avatar loaded for ${agent.username}: ${agent.profilePicture}`)}
+                        onError={() => console.error(`[HomePage] Failed to load avatar for ${agent.username}: ${agent.profilePicture}`)}
                       />
                       <AvatarFallback className="bg-primary/10 text-primary">
                         {agent.username.slice(0, 2).toUpperCase()}
@@ -293,6 +295,7 @@ export default function HomePage() {
                         alt={property.title}
                         fill
                         className="object-cover transition-transform group-hover:scale-110"
+                        onError={() => console.error(`[HomePage] Failed to load property image for ${property.title}: ${property.imageUrls[0]}`)}
                       />
                     </div>
                     <div className="flex-1">
@@ -359,6 +362,8 @@ export default function HomePage() {
                       <AvatarImage
                         src={post.author.profilePicture || "/placeholder.svg?height=40&width=40"}
                         alt={post.author.username}
+                        onLoad={() => console.log(`[HomePage] Post author avatar loaded for ${post.author.username}: ${post.author.profilePicture}`)}
+                        onError={() => console.error(`[HomePage] Failed to load post author avatar for ${post.author.username}: ${post.author.profilePicture}`)}
                       />
                       <AvatarFallback className="bg-primary/10 text-primary">
                         {post.author.username.slice(0, 2).toUpperCase()}
@@ -389,6 +394,7 @@ export default function HomePage() {
                         alt={post.title}
                         fill
                         className="object-cover"
+                        onError={() => console.error(`[HomePage] Failed to load post image for ${post.title}: ${post.imageUrls[0]}`)}
                       />
                     </div>
                     <div className="flex items-center gap-2 mt-4">

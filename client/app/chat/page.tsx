@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils";
 import ProtectedRoute from "@/components/protected-route";
 import { useAuth } from "@/context/auth-context";
 import { useRouter } from "next/navigation";
-import { Socket } from "socket.io-client";
-import io from "socket.io-client";
+// Removed duplicate import of Socket
+import io, { type Socket } from "socket.io-client";
 
 interface User {
   id: string;
@@ -62,7 +62,15 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [showMobileContacts, setShowMobileContacts] = useState(true);
   const [socket, setSocket] = useState<typeof Socket | null>(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Извлечение JWT из cookies
+  const getJwtToken = () => {
+    const cookies = document.cookie.split("; ");
+    const jwtCookie = cookies.find((row) => row.startsWith("jwt="));
+    return jwtCookie ? jwtCookie.split("=")[1] : null;
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -133,7 +141,11 @@ export default function ChatPage() {
         const mappedContacts: Contact[] = friends.map((friend) => ({
           id: friend.id.toString(),
           name: friend.username,
-          avatar: friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : "/placeholder.svg",
+          avatar: friend.profilePicture
+            ? friend.profilePicture.startsWith("http")
+              ? friend.profilePicture
+              : `http://localhost:5000/uploads/profiles/${friend.profilePicture.replace(/^\/Uploads\/(?:profiles\/)?/, "")}`
+            : "/placeholder.svg",
           online: false,
         }));
 
@@ -194,7 +206,11 @@ export default function ChatPage() {
             contactExists = {
               id: userData.id.toString(),
               name: userData.username,
-              avatar: userData.profilePicture ? `http://localhost:5000${userData.profilePicture}` : "/placeholder.svg",
+              avatar: userData.profilePicture
+                ? userData.profilePicture.startsWith("http")
+                  ? userData.profilePicture
+                  : `http://localhost:5000/uploads/profiles/${userData.profilePicture.replace(/^\/Uploads\/(?:profiles\/)?/, "")}`
+                : "/placeholder.svg",
               online: false,
             };
             mappedContacts.push(contactExists);
@@ -228,10 +244,20 @@ export default function ChatPage() {
     fetchContacts();
 
     console.log("[ChatPage] Initializing Socket.IO");
+    const jwtToken = getJwtToken();
+    if (!jwtToken) {
+      console.error("[ChatPage] No JWT token found in cookies");
+      toast({
+        title: "Ошибка",
+        description: "Требуется авторизация. Пожалуйста, войдите снова.",
+        variant: "destructive",
+      });
+      router.push("/login");
+      return;
+    }
+
     const newSocket = io("http://localhost:5000", {
-      auth: {
-        token: `Bearer ${document.cookie}`
-      },
+      auth: { token: jwtToken },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: 5,
@@ -242,6 +268,7 @@ export default function ChatPage() {
 
     newSocket.on("connect", () => {
       console.log(`[ChatPage] Connected to socket as user ${user?.id}`);
+      setIsSocketConnected(true);
       toast({
         title: "Чат подключен",
         description: "Соединение с чатом установлено",
@@ -250,6 +277,10 @@ export default function ChatPage() {
 
     newSocket.on("message", (msg: SocketMessage) => {
       console.log("[ChatPage] Received socket message:", msg);
+      if (!msg.senderId || !msg.receiverId) {
+        console.warn("[ChatPage] Invalid message format:", msg);
+        return;
+      }
       setMessages((prev) => {
         const chatId = msg.senderId.toString() === user?.id.toString() ? msg.receiverId.toString() : msg.senderId.toString();
         return {
@@ -269,29 +300,48 @@ export default function ChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
-    newSocket.on("error", (error: { message?: string } | null) => {
+    newSocket.on("error", (error: { message?: string } | string | unknown) => {
+      const errorMessage = typeof error === "object" && error && "message" in error
+        ? error.message
+        : typeof error === "string"
+        ? error
+        : "Неизвестная ошибка сервера";
       console.error("[ChatPage] Socket error:", {
-        error: error || "No error data",
-        message: error?.message || "Unknown error",
+        error: errorMessage,
+        rawError: JSON.stringify(error),
         cookies: document.cookie,
       });
+      setIsSocketConnected(false);
       toast({
         title: "Ошибка чата",
-        description: `Не удалось подключиться к чату: ${error?.message || "Неизвестная ошибка"}`,
+        description: `Не удалось подключиться к чату: ${errorMessage}`,
+        variant: "destructive",
+      });
+      if (typeof errorMessage === "string" && (errorMessage.includes("Требуется авторизация") || errorMessage.includes("Недействительный токен"))) {
+        router.push("/login");
+      }
+    });
+
+    newSocket.on("connect_error", (error: Error) => {
+      console.error("[ChatPage] Socket connect_error:", {
+        message: error.message || "Unknown error",
+        stack: error.stack || "No stack",
+        cookies: document.cookie,
+      });
+      setIsSocketConnected(false);
+      toast({
+        title: "Ошибка соединения",
+        description: `Не удалось подключиться к чату: ${error.message || "Проверьте соединение"}`,
         variant: "destructive",
       });
     });
 
-    newSocket.on("connect_error", (error: Error | null) => {
-      console.error("[ChatPage] Socket connect_error:", {
-        error: error || "No error data",
-        message: error?.message || "Unknown error",
-        stack: error?.stack || "No stack",
-        cookies: document.cookie,
-      });
+    newSocket.on("disconnect", (reason: string) => {
+      console.log("[ChatPage] Socket disconnected:", reason);
+      setIsSocketConnected(false);
       toast({
-        title: "Ошибка соединения",
-        description: `Не удалось подключиться к чату: ${error?.message || "Проверьте соединение"}`,
+        title: "Чат отключен",
+        description: `Соединение с чатом разорвано: ${reason}`,
         variant: "destructive",
       });
     });
@@ -382,15 +432,18 @@ export default function ChatPage() {
   }, [activeChat, user, toast, router]);
 
   const handleSendMessage = async () => {
-    if (!message.trim() || !activeChat || !user) {
+    if (!message.trim() || !activeChat || !user || !isSocketConnected) {
       console.log("[ChatPage] Cannot send message:", {
         message: !!message.trim(),
         activeChat: !!activeChat,
         user: !!user,
+        isSocketConnected,
       });
       toast({
         title: "Ошибка",
-        description: "Сообщение или получатель не указаны",
+        description: !isSocketConnected
+          ? "Чат не подключен. Попробуйте позже."
+          : "Сообщение или получатель не указаны",
         variant: "destructive",
       });
       return;
@@ -459,6 +512,16 @@ export default function ChatPage() {
           },
         ],
       }));
+      // Отправляем сообщение через Socket.IO
+      if (socket) {
+        socket.emit("message", {
+          id: sentMessage.id,
+          senderId: parseInt(user.id, 10),
+          receiverId: friendId,
+          content: sentMessage.content,
+          createdAt: sentMessage.createdAt,
+        });
+      }
       setMessage("");
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch (error: unknown) {
@@ -542,7 +605,12 @@ export default function ChatPage() {
                   onClick={() => handleSelectChat(contact.id)}
                 >
                   <Avatar className="h-10 w-10">
-                    <AvatarImage src={contact.avatar} alt={contact.name} />
+                    <AvatarImage
+                      src={contact.avatar}
+                      alt={contact.name}
+                      onLoad={() => console.log(`[ChatPage] Contact avatar loaded for ${contact.name}: ${contact.avatar}`)}
+                      onError={() => console.error(`[ChatPage] Failed to load contact avatar for ${contact.name}: ${contact.avatar}`)}
+                    />
                     <AvatarFallback>{contact.name.slice(0, 2).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div className="ml-3 flex-1">
@@ -584,6 +652,8 @@ export default function ChatPage() {
                     <AvatarImage
                       src={contacts.find((c) => c.id === activeChat)?.avatar}
                       alt={contacts.find((c) => c.id === activeChat)?.name}
+                      onLoad={() => console.log(`[ChatPage] Active chat avatar loaded for ${contacts.find((c) => c.id === activeChat)?.name}: ${contacts.find((c) => c.id === activeChat)?.avatar}`)}
+                      onError={() => console.error(`[ChatPage] Failed to load active chat avatar for ${contacts.find((c) => c.id === activeChat)?.name}: ${contacts.find((c) => c.id === activeChat)?.avatar}`)}
                     />
                     <AvatarFallback>
                       {contacts.find((c) => c.id === activeChat)?.name.slice(0, 2).toUpperCase()}
@@ -649,7 +719,7 @@ export default function ChatPage() {
                     placeholder="Введите сообщение..."
                     className="flex-1"
                   />
-                  <Button type="submit" size="icon">
+                  <Button type="submit" size="icon" disabled={!isSocketConnected}>
                     <Send className="h-5 w-5" />
                   </Button>
                 </form>

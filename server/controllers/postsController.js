@@ -480,7 +480,7 @@ class PostsController {
                 _count: 'desc'
               }
             },
-            { id: 'asc' } // Дополнительная сортировка для стабильности
+            { id: 'asc' }
           ],
           select: {
             id: true,
@@ -499,12 +499,22 @@ class PostsController {
           }
         });
   
-        const formattedAgents = agents.map(agent => ({
-          id: agent.id.toString(),
-          username: agent.username,
-          profilePicture: agent.profilePicture ? `/uploads/profiles/${agent.profilePicture}` : null,
-          friendsCount: (agent._count.userFriendships || 0) + (agent._count.friendFriendships || 0)
-        }));
+        const formattedAgents = agents.map(agent => {
+          const profilePicture = agent.profilePicture
+            ? `http://localhost:5000/uploads/${agent.profilePicture}`
+            : null;
+          console.log('[GET /api/posts/top-agents] Agent profilePicture:', {
+            username: agent.username,
+            profilePicture,
+            rawProfilePicture: agent.profilePicture,
+          });
+          return {
+            id: agent.id.toString(),
+            username: agent.username,
+            profilePicture,
+            friendsCount: (agent._count.userFriendships || 0) + (agent._count.friendFriendships || 0)
+          };
+        });
   
         console.log('[GET /api/posts/top-agents] Fetched agents:', formattedAgents);
         res.json(formattedAgents);
@@ -524,7 +534,17 @@ class PostsController {
               _count: 'desc'
             }
           },
-          include: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            location: true,
+            price: true,
+            bedrooms: true,
+            bathrooms: true,
+            squareMeters: true,
+            imageUrls: true,
+            createdAt: true,
             author: {
               select: {
                 id: true,
@@ -532,43 +552,74 @@ class PostsController {
                 profilePicture: true
               }
             },
-            likes: true
+            _count: {
+              select: { likes: true }
+            }
           }
         });
   
-        const formattedProperties = properties.map(post => ({
-          id: post.id,
-          title: post.title,
-          description: post.description,
-          location: post.location,
-          price: post.price,
-          bedrooms: post.bedrooms,
-          bathrooms: post.bathrooms,
-          squareMeters: post.squareMeters,
-          imageUrls: post.imageUrls.map(url => `http://localhost:5000${url}`),
-          likes: post.likes.length,
-          createdAt: post.createdAt,
-          author: {
-            id: post.author.id.toString(),
-            username: post.author.username,
-            profilePicture: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null
-          }
-        }));
+        const formattedProperties = properties.map(property => {
+          const imageUrls = property.imageUrls.map(url => {
+            if (url.startsWith('http')) return url;
+            if (url.startsWith('/Uploads/posts/')) return `http://localhost:5000${url}`;
+            return `http://localhost:5000/uploads/posts/${url}`;
+          });
+          const authorProfilePicture = property.author.profilePicture
+            ? `http://localhost:5000/uploads/profiles/${property.author.profilePicture}`
+            : null;
+          console.log('[GET /api/posts/trending] Property data:', {
+            title: property.title,
+            imageUrls,
+            author: {
+              username: property.author.username,
+              profilePicture: authorProfilePicture,
+              rawProfilePicture: property.author.profilePicture,
+            },
+          });
+          return {
+            id: property.id,
+            title: property.title,
+            description: property.description,
+            location: property.location,
+            price: property.price,
+            bedrooms: property.bedrooms,
+            bathrooms: property.bathrooms,
+            squareMeters: property.squareMeters,
+            imageUrls,
+            likes: property._count.likes,
+            createdAt: property.createdAt.toISOString(),
+            author: {
+              id: property.author.id.toString(),
+              username: property.author.username,
+              profilePicture: authorProfilePicture,
+            }
+          };
+        });
   
         console.log('[GET /api/posts/trending] Fetched properties:', formattedProperties.length);
         res.json(formattedProperties);
       } catch (error) {
-        console.error('[GET /api/posts/trending] Error:', error.message);
+        console.error('[GET /api/posts/trending] Error:', error.message, error.stack);
         res.status(500).json({ message: 'Ошибка сервера' });
       }
     }
   
     async getAllPosts(req, res) {
       try {
-        console.log('[GET /api/posts/feed] Fetching feed posts');
+        console.log('[GET /api/posts/feed] Fetching all posts');
         const posts = await prisma.post.findMany({
           orderBy: { createdAt: 'desc' },
-          include: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            location: true,
+            price: true,
+            bedrooms: true,
+            bathrooms: true,
+            squareMeters: true,
+            imageUrls: true,
+            createdAt: true,
             author: {
               select: {
                 id: true,
@@ -576,33 +627,54 @@ class PostsController {
                 profilePicture: true
               }
             },
-            likes: true
+            _count: {
+              select: { likes: true }
+            }
           }
         });
   
-        const formattedPosts = posts.map(post => ({
-          id: post.id,
-          title: post.title,
-          description: post.description,
-          location: post.location,
-          price: post.price,
-          bedrooms: post.bedrooms,
-          bathrooms: post.bathrooms,
-          squareMeters: post.squareMeters,
-          imageUrls: post.imageUrls.map(url => `http://localhost:5000${url}`),
-          likes: post.likes.length,
-          createdAt: post.createdAt,
-          author: {
-            id: post.author.id.toString(),
-            username: post.author.username,
-            profilePicture: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null
-          }
-        }));
+        const formattedPosts = posts.map(post => {
+          const imageUrls = post.imageUrls.map(url => {
+            if (url.startsWith('http')) return url;
+            if (url.startsWith('/Uploads/posts/')) return `http://localhost:5000${url}`;
+            return `http://localhost:5000/uploads/posts/${url}`;
+          });
+          const authorProfilePicture = post.author.profilePicture
+            ? `http://localhost:5000/uploads/${post.author.profilePicture}`
+            : null;
+          console.log('[GET /api/posts/feed] Post data:', {
+            title: post.title,
+            imageUrls,
+            author: {
+              username: post.author.username,
+              profilePicture: authorProfilePicture,
+              rawProfilePicture: post.author.profilePicture,
+            },
+          });
+          return {
+            id: post.id,
+            title: post.title,
+            description: post.description,
+            location: post.location,
+            price: post.price,
+            bedrooms: post.bedrooms,
+            bathrooms: post.bathrooms,
+            squareMeters: post.squareMeters,
+            imageUrls,
+            likes: post._count.likes,
+            createdAt: post.createdAt.toISOString(),
+            author: {
+              id: post.author.id.toString(),
+              username: post.author.username,
+              profilePicture: authorProfilePicture,
+            }
+          };
+        });
   
         console.log('[GET /api/posts/feed] Fetched posts:', formattedPosts.length);
         res.json(formattedPosts);
       } catch (error) {
-        console.error('[GET /api/posts/feed] Error:', error.message);
+        console.error('[GET /api/posts/feed] Error:', error.message, error.stack);
         res.status(500).json({ message: 'Ошибка сервера' });
       }
     }

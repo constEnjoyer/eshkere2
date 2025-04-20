@@ -35,7 +35,9 @@ class ProfileController {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
+                profilePicture: user.profilePicture
+                    ? `http://localhost:5000/uploads/profiles/${path.basename(user.profilePicture)}`
+                    : null,
                 bio: user.bio || null,
                 phone: user.phone || null,
                 location: user.location || null,
@@ -45,10 +47,15 @@ class ProfileController {
                 eventsCount: user.posts.length,
             };
 
-            console.log(`[GET /api/profile] Profile fetched:`, profile);
+            console.log(`[GET /api/profile] Profile fetched:`, {
+                id: profile.id,
+                username: profile.username,
+                profilePicture: profile.profilePicture,
+                rawProfilePicture: user.profilePicture,
+            });
             res.json(profile);
         } catch (error) {
-            console.error(`[GET /api/profile] Error:`, error);
+            console.error(`[GET /api/profile] Error:`, error.message, error.stack);
             res.status(500).json({ message: 'Server error', error: error.message });
         }
     }
@@ -89,7 +96,9 @@ class ProfileController {
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
+                profilePicture: user.profilePicture
+                    ? `http://localhost:5000/uploads/profiles/${path.basename(user.profilePicture)}`
+                    : null,
                 bio: user.bio || null,
                 phone: user.phone || null,
                 location: user.location || null,
@@ -99,10 +108,15 @@ class ProfileController {
                 eventsCount: user.posts.length,
             };
 
-            console.log(`[GET /api/profile/${userId}] Profile fetched:`, profile);
+            console.log(`[GET /api/profile/${userId}] Profile fetched:`, {
+                id: profile.id,
+                username: profile.username,
+                profilePicture: profile.profilePicture,
+                rawProfilePicture: user.profilePicture,
+            });
             res.json(profile);
         } catch (error) {
-            console.error(`[GET /api/profile/${req.params.userId}] Error:`, error);
+            console.error(`[GET /api/profile/${req.params.userId}] Error:`, error.message, error.stack);
             res.status(500).json({ message: 'Server error', error: error.message });
         }
     }
@@ -142,8 +156,9 @@ class ProfileController {
                 id: updatedUser.id,
                 username: updatedUser.username,
                 email: updatedUser.email,
-                profilePicture: updatedUser.profilePicture ?
-                    `http://localhost:5000${updatedUser.profilePicture}` : null,
+                profilePicture: updatedUser.profilePicture
+                    ? `http://localhost:5000/uploads/profiles/${path.basename(updatedUser.profilePicture)}`
+                    : null,
                 bio: updatedUser.bio || null,
                 phone: updatedUser.phone || null,
                 location: updatedUser.location || null,
@@ -153,10 +168,15 @@ class ProfileController {
                 eventsCount: updatedUser.posts.length,
             };
 
-            console.log(`[PUT /api/profile/update] Profile updated:`, profile);
+            console.log(`[PUT /api/profile/update] Profile updated:`, {
+                id: profile.id,
+                username: profile.username,
+                profilePicture: profile.profilePicture,
+                rawProfilePicture: updatedUser.profilePicture,
+            });
             res.json(profile);
         } catch (error) {
-            console.error(`[PUT /api/profile/update] Error:`, error);
+            console.error(`[PUT /api/profile/update] Error:`, error.message, error.stack);
             if (error.code === 'P2002') {
                 return res.status(400).json({ message: 'Username or email already taken' });
             }
@@ -174,36 +194,46 @@ class ProfileController {
                 return res.status(400).json({ message: 'No file uploaded' });
             }
 
-            const filePath = `/Uploads/profiles/${req.file.filename}`;
-            const absolutePath = path.join(__dirname, '../Uploads/profiles', req.file.filename);
+            // Формирование имени файла и пути
+            const fileExtension = path.extname(req.file.originalname);
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}${fileExtension}`;
+            const filePath = `/uploads/profiles/${fileName}`;
+            const absolutePath = path.join(__dirname, '..', 'Uploads', 'profiles', fileName);
 
-            // Проверяем, существует ли файл
+            // Создание папки Uploads/profiles, если не существует
+            const profilesDir = path.join(__dirname, '..', 'Uploads', 'profiles');
+            await fs.mkdir(profilesDir, { recursive: true });
+
+            // Сохранение файла
+            await fs.writeFile(absolutePath, req.file.buffer);
+            console.log(`[POST /api/profile/upload-photo] File saved at: ${absolutePath}`);
+
+            // Проверка существования файла
             try {
                 await fs.access(absolutePath);
                 console.log(`[POST /api/profile/upload-photo] File exists at: ${absolutePath}`);
             } catch (error) {
-                console.error(`[POST /api/profile/upload-photo] File not found at: ${absolutePath}`, error);
+                console.error(`[POST /api/profile/upload-photo] File not found at: ${absolutePath}`, error.message);
                 return res.status(500).json({ message: 'File save error', error: error.message });
             }
 
-            // Находим текущий профиль для удаления старого изображения
+            // Удаление старого изображения
             const user = await prisma.users.findUnique({
                 where: { id: userId },
                 select: { profilePicture: true },
             });
 
-            // Удаляем старое изображение, если оно существует
             if (user && user.profilePicture) {
-                const oldPath = path.join(__dirname, '../Uploads/profiles', path.basename(user.profilePicture));
+                const oldPath = path.join(__dirname, '..', user.profilePicture);
                 try {
                     await fs.unlink(oldPath);
                     console.log(`[POST /api/profile/upload-photo] Old photo deleted: ${oldPath}`);
                 } catch (error) {
-                    console.warn(`[POST /api/profile/upload-photo] Failed to delete old photo: ${error.message}`);
+                    console.warn(`[POST /api/profile/upload-photo] Failed to delete old photo: ${oldPath}`, error.message);
                 }
             }
 
-            // Обновляем профиль в базе
+            // Обновление профиля в базе
             const updatedUser = await prisma.users.update({
                 where: { id: userId },
                 data: { profilePicture: filePath },
@@ -226,21 +256,27 @@ class ProfileController {
                 id: updatedUser.id,
                 username: updatedUser.username,
                 email: updatedUser.email,
-                profilePicture: updatedUser.profilePicture ?
-                    `http://localhost:5000${updatedUser.profilePicture}` : null,
+                profilePicture: updatedUser.profilePicture
+                    ? `http://localhost:5000/uploads/profiles/${path.basename(updatedUser.profilePicture)}`
+                    : null,
                 bio: updatedUser.bio || null,
                 phone: updatedUser.phone || null,
                 location: updatedUser.location || null,
                 skills: updatedUser.skills || [],
                 friendsCount: updatedUser.userFriendships.length + updatedUser.friendFriendships.length,
                 postsCount: updatedUser.posts.length,
-                eventsCount: user.posts.length,
+                eventsCount: updatedUser.posts.length,
             };
 
-            console.log(`[POST /api/profile/upload-photo] Photo uploaded:`, profile);
+            console.log(`[POST /api/profile/upload-photo] Photo uploaded:`, {
+                id: profile.id,
+                username: profile.username,
+                profilePicture: profile.profilePicture,
+                rawProfilePicture: updatedUser.profilePicture,
+            });
             res.json(profile);
         } catch (error) {
-            console.error(`[POST /api/profile/upload-photo] Error:`, error);
+            console.error(`[POST /api/profile/upload-photo] Error:`, error.message, error.stack);
             res.status(500).json({ message: 'Server error', error: error.message });
         }
     }
