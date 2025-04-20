@@ -463,6 +463,7 @@ class PostsController {
             res.status(500).json({ message: 'Ошибка сервера', error: error.message });
         }
     }
+    
 
     async toggleLike(req, res) {
         try {

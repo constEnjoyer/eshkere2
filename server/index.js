@@ -13,10 +13,18 @@ const postsRouter = require('./routers/postsRouter');
 const messagesRouter = require('./routers/messagesRouter');
 const usersRouter = require('./routers/usersRouter');
 const { PrismaClient } = require('@prisma/client');
+const fs = require('fs');
 const prisma = new PrismaClient();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Создание папки Uploads
+const uploadsPath = path.join(__dirname, 'Uploads');
+if (!fs.existsSync(uploadsPath)) {
+    fs.mkdirSync(UploadsPath, { recursive: true });
+    console.log(`[Server] Created Uploads directory: ${uploadsPath}`);
+}
 
 // Middleware
 app.use(cors({
@@ -47,7 +55,6 @@ app.use('/api/messages', messagesRouter);
 app.use('/api/users', usersRouter);
 
 // Static files
-const uploadsPath = path.join(__dirname, 'Uploads');
 console.log(`[Server] Serving static files from: ${uploadsPath}`);
 app.use('/Uploads', express.static(uploadsPath));
 app.use(express.static(path.join(__dirname, '..', 'client')));

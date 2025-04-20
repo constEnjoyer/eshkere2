@@ -4,6 +4,8 @@ const bcrypt = require('bcrypt');
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 // Генерация токена с учетом "Remember Me"
@@ -40,7 +42,7 @@ const transporter = nodemailer.createTransport({
 });
 
 // Универсальная функция отправки email
-const sendEmail = async(email, subject, text) => {
+const sendEmail = async (email, subject, text) => {
     const mailOptions = {
         from: process.env.EMAIL_USER,
         to: email,
@@ -366,7 +368,7 @@ class AuthController {
                 email: user.email,
                 roles: user.user_roles.map(ur => ur.roles.value),
                 isActive: user.isActive,
-                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
+                profilePicture: user.profilePicture ? `/Uploads/${user.profilePicture}` : null,
                 bio: user.bio || '',
                 phone: user.phone || '',
                 location: user.location || '',
@@ -389,7 +391,16 @@ class AuthController {
         try {
             const userId = parseInt(req.user.id, 10);
             const { username, bio, phone, location, skills } = req.body;
-            console.log('[PUT /api/auth/user] Updating user:', { userId, username, bio, phone, location, skills });
+            console.log('[PUT /api/auth/user] Updating user:', { 
+                userId, 
+                username, 
+                bio, 
+                phone, 
+                location, 
+                skills: skills ? JSON.parse(skills) : undefined,
+                hasFile: !!req.file,
+                fileName: req.file?.filename,
+            });
 
             if (isNaN(userId)) {
                 console.log('[PUT /api/auth/user] Invalid userId:', req.user.id);
@@ -402,6 +413,15 @@ class AuthController {
                 return res.status(404).json({ message: 'Пользователь не найден' });
             }
 
+            // Если загружен новый аватар, удаляем старый
+            if (req.file && user.profilePicture) {
+                const oldPicturePath = path.join(__dirname, '..', 'Uploads', user.profilePicture);
+                if (fs.existsSync(oldPicturePath)) {
+                    fs.unlinkSync(oldPicturePath);
+                    console.log('[PUT /api/auth/user] Removed old profile picture:', user.profilePicture);
+                }
+            }
+
             const updatedUser = await prisma.users.update({
                 where: { id: userId },
                 data: {
@@ -409,7 +429,8 @@ class AuthController {
                     bio: bio !== undefined ? bio : user.bio,
                     phone: phone !== undefined ? phone : user.phone,
                     location: location !== undefined ? location : user.location,
-                    skills: skills !== undefined ? skills : user.skills,
+                    skills: skills ? JSON.parse(skills) : user.skills,
+                    profilePicture: req.file ? req.file.filename : user.profilePicture,
                 },
                 include: {
                     user_roles: { include: { roles: true } },
@@ -425,7 +446,7 @@ class AuthController {
                 email: updatedUser.email,
                 roles: updatedUser.user_roles.map(ur => ur.roles.value),
                 isActive: updatedUser.isActive,
-                profilePicture: updatedUser.profilePicture ? `http://localhost:5000${updatedUser.profilePicture}` : null,
+                profilePicture: updatedUser.profilePicture ? `/Uploads/profiles/${updatedUser.profilePicture}` : null,
                 bio: updatedUser.bio || '',
                 phone: updatedUser.phone || '',
                 location: updatedUser.location || '',

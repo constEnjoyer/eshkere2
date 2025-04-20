@@ -81,11 +81,14 @@ export default function ProfilePage() {
     location: "",
     newSkill: "",
     skills: [] as string[],
+    profilePicture: null as File | null,
+    previewUrl: "" as string,
   });
   const [errors, setErrors] = useState({
     username: "",
     phone: "",
     location: "",
+    profilePicture: "",
   });
   const [loading, setLoading] = useState(true);
 
@@ -165,6 +168,8 @@ export default function ProfilePage() {
           location: normalizedProfile.location || "",
           newSkill: "",
           skills: normalizedProfile.skills,
+          profilePicture: null,
+          previewUrl: normalizedProfile.profilePicture ? `http://localhost:5000${normalizedProfile.profilePicture}` : "",
         });
       } catch (error: any) {
         if (error.name === "AbortError") return;
@@ -334,7 +339,7 @@ export default function ProfilePage() {
   };
 
   const validateForm = () => {
-    const newErrors = { username: "", phone: "", location: "" };
+    const newErrors = { username: "", phone: "", location: "", profilePicture: "" };
     let isValid = true;
 
     if (!profileForm.username.trim()) {
@@ -350,6 +355,18 @@ export default function ProfilePage() {
     if (profileForm.location && profileForm.location.length < 2) {
       newErrors.location = "Локация должна содержать минимум 2 символа";
       isValid = false;
+    }
+
+    if (profileForm.profilePicture) {
+      const allowedTypes = ["image/jpeg", "image/png"];
+      if (!allowedTypes.includes(profileForm.profilePicture.type)) {
+        newErrors.profilePicture = "Поддерживаются только JPEG и PNG";
+        isValid = false;
+      }
+      if (profileForm.profilePicture.size > 5 * 1024 * 1024) {
+        newErrors.profilePicture = "Размер файла не должен превышать 5 МБ";
+        isValid = false;
+      }
     }
 
     setErrors(newErrors);
@@ -371,10 +388,22 @@ export default function ProfilePage() {
     setProfileForm({
       ...profileForm,
       skills: profileForm.skills.filter((skill) => skill !== skillToRemove),
-  });
-};
+    });
+  };
 
-const handleSaveProfile = async () => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const previewUrl = URL.createObjectURL(file);
+      setProfileForm({
+        ...profileForm,
+        profilePicture: file,
+        previewUrl,
+      });
+    }
+  };
+
+  const handleSaveProfile = async () => {
     if (!profile || !validateForm()) {
       toast({
         title: "Ошибка",
@@ -385,17 +414,23 @@ const handleSaveProfile = async () => {
     }
 
     try {
-      console.log("[ProfilePage] Saving profile:", profileForm);
+      console.log("[ProfilePage] Saving profile:", {
+        ...profileForm,
+        profilePicture: profileForm.profilePicture?.name,
+      });
+      const formData = new FormData();
+      formData.append("username", profileForm.username);
+      formData.append("bio", profileForm.bio || "");
+      formData.append("phone", profileForm.phone || "");
+      formData.append("location", profileForm.location || "");
+      formData.append("skills", JSON.stringify(profileForm.skills));
+      if (profileForm.profilePicture) {
+        formData.append("profilePicture", profileForm.profilePicture);
+      }
+
       const response = await fetch("http://localhost:5000/api/auth/user", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: profileForm.username,
-          bio: profileForm.bio || null,
-          phone: profileForm.phone || null,
-          location: profileForm.location || null,
-          skills: profileForm.skills,
-        }),
+        body: formData,
         credentials: "include",
       });
 
@@ -406,8 +441,8 @@ const handleSaveProfile = async () => {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("[ProfilePage] Profile save failed:", response.status, errorText);
+        const errorData = await response.json().catch(() => ({}));
+        console.error("[ProfilePage] Profile save failed:", response.status, errorData);
         if (response.status === 401 || response.status === 403) {
           toast({
             title: "Ошибка авторизации",
@@ -417,7 +452,7 @@ const handleSaveProfile = async () => {
           router.push("/login");
           return;
         }
-        throw new Error(`Не удалось обновить профиль: ${response.status} ${errorText}`);
+        throw new Error(`Не удалось обновить профиль: ${response.status} ${errorData.message || "Unknown error"}`);
       }
 
       const updatedProfile = await response.json();
@@ -429,7 +464,14 @@ const handleSaveProfile = async () => {
         phone: updatedProfile.phone || null,
         location: updatedProfile.location || null,
         skills: Array.isArray(updatedProfile.skills) ? updatedProfile.skills : [],
+        profilePicture: updatedProfile.profilePicture || null,
       });
+      setProfileForm((prev) => ({
+        ...prev,
+        profilePicture: null,
+        previewUrl: updatedProfile.profilePicture ? `http://localhost:5000${updatedProfile.profilePicture}` : "",
+      }));
+      URL.revokeObjectURL(profileForm.previewUrl);
       setEditProfileOpen(false);
       toast({ title: "Успех", description: "Профиль обновлен" });
     } catch (error: any) {
@@ -526,7 +568,7 @@ const handleSaveProfile = async () => {
               <div className="relative">
                 <Avatar className="h-24 w-24 border-4 border-primary/20">
                   <AvatarImage
-                    src={profile.profilePicture ? `http://localhost:5000${profile.profilePicture}` : "/placeholder.svg?height=96&width=96"}
+                    src={profileForm.previewUrl || profile.profilePicture ? `http://localhost:5000${profile.profilePicture}` : "/placeholder.svg?height=96&width=96"}
                     alt={profile.username}
                   />
                   <AvatarFallback className="bg-primary/10 text-primary text-xl font-bold">
@@ -734,6 +776,25 @@ const handleSaveProfile = async () => {
             <DialogTitle>Редактировать профиль</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label htmlFor="profilePicture" className="text-sm font-medium">Аватар</label>
+              <div className="flex items-center gap-4">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage
+                    src={profileForm.previewUrl || (profile.profilePicture ? `http://localhost:5000${profile.profilePicture}` : "/placeholder.svg?height=64&width=64")}
+                    alt="Превью аватара"
+                  />
+                  <AvatarFallback>АВ</AvatarFallback>
+                </Avatar>
+                <Input
+                  id="profilePicture"
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  onChange={handleFileChange}
+                />
+              </div>
+              {errors.profilePicture && <p className="text-sm text-destructive">{errors.profilePicture}</p>}
+            </div>
             <div className="grid gap-2">
               <label htmlFor="username" className="text-sm font-medium">Имя пользователя</label>
               <Input

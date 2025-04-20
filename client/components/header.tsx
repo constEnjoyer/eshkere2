@@ -31,7 +31,7 @@ export default function Header() {
 
   useEffect(() => {
     console.log("[Header] User state:", {
-      user: user ? { id: user.id, username: user.username } : null,
+      user: user ? { id: user.id, username: user.username, profilePicture: user.profilePicture } : null,
       isAuthenticated,
       isLoading,
     });
@@ -63,6 +63,7 @@ export default function Header() {
     try {
       console.log("[Header] Initiating logout");
       await logout();
+      toast({ title: "Успех", description: "Вы вышли из системы" });
     } catch (error) {
       console.error("[Header] Logout error:", error);
       toast({ title: "Ошибка", description: "Не удалось выйти", variant: "destructive" });
@@ -70,8 +71,20 @@ export default function Header() {
   };
 
   if (!mounted) {
+    console.log("[Header] Not mounted yet, skipping render");
     return null; // Предотвращаем рендеринг до монтирования
   }
+
+  // Формируем полный URL для аватара
+  const getAvatarUrl = (profilePicture?: string | null) => {
+    if (!profilePicture) {
+      return `/placeholder.svg?height=32&width=32&text=${user?.username?.[0] || "U"}`;
+    }
+    // Если путь относительный, добавляем базовый URL
+    return profilePicture.startsWith('http')
+      ? profilePicture
+      : `http://localhost:5000${profilePicture}`;
+  };
 
   return (
     <>
@@ -240,10 +253,7 @@ export default function Header() {
                         {isAuthenticated && user ? (
                           <>
                             <AvatarImage
-                              src={
-                                user.profilePicture ||
-                                `/placeholder.svg?height=32&width=32&text=${user.username?.[0] || "U"}`
-                              }
+                              src={getAvatarUrl(user.profilePicture)}
                               alt={user.username || "User"}
                             />
                             <AvatarFallback className="bg-primary/10 text-primary">
