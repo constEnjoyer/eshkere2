@@ -464,6 +464,148 @@ class PostsController {
         }
     }
     
+    async getTopAgents(req, res) {
+      try {
+        console.log('[GET /api/posts/top-agents] Fetching top agents');
+        const agents = await prisma.users.findMany({
+          take: 6,
+          orderBy: [
+            {
+              userFriendships: {
+                _count: 'desc'
+              }
+            },
+            {
+              friendFriendships: {
+                _count: 'desc'
+              }
+            },
+            { id: 'asc' } // Дополнительная сортировка для стабильности
+          ],
+          select: {
+            id: true,
+            username: true,
+            profilePicture: true,
+            _count: {
+              select: {
+                userFriendships: {
+                  where: { status: 'accepted' }
+                },
+                friendFriendships: {
+                  where: { status: 'accepted' }
+                }
+              }
+            }
+          }
+        });
+  
+        const formattedAgents = agents.map(agent => ({
+          id: agent.id.toString(),
+          username: agent.username,
+          profilePicture: agent.profilePicture ? `/uploads/profiles/${agent.profilePicture}` : null,
+          friendsCount: (agent._count.userFriendships || 0) + (agent._count.friendFriendships || 0)
+        }));
+  
+        console.log('[GET /api/posts/top-agents] Fetched agents:', formattedAgents);
+        res.json(formattedAgents);
+      } catch (error) {
+        console.error('[GET /api/posts/top-agents] Error:', error.message, error.stack);
+        res.status(500).json({ message: 'Ошибка сервера' });
+      }
+    }
+  
+    async getTrendingProperties(req, res) {
+      try {
+        console.log('[GET /api/posts/trending] Fetching trending properties');
+        const properties = await prisma.post.findMany({
+          take: 6,
+          orderBy: {
+            likes: {
+              _count: 'desc'
+            }
+          },
+          include: {
+            author: {
+              select: {
+                id: true,
+                username: true,
+                profilePicture: true
+              }
+            },
+            likes: true
+          }
+        });
+  
+        const formattedProperties = properties.map(post => ({
+          id: post.id,
+          title: post.title,
+          description: post.description,
+          location: post.location,
+          price: post.price,
+          bedrooms: post.bedrooms,
+          bathrooms: post.bathrooms,
+          squareMeters: post.squareMeters,
+          imageUrls: post.imageUrls.map(url => `http://localhost:5000${url}`),
+          likes: post.likes.length,
+          createdAt: post.createdAt,
+          author: {
+            id: post.author.id.toString(),
+            username: post.author.username,
+            profilePicture: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null
+          }
+        }));
+  
+        console.log('[GET /api/posts/trending] Fetched properties:', formattedProperties.length);
+        res.json(formattedProperties);
+      } catch (error) {
+        console.error('[GET /api/posts/trending] Error:', error.message);
+        res.status(500).json({ message: 'Ошибка сервера' });
+      }
+    }
+  
+    async getAllPosts(req, res) {
+      try {
+        console.log('[GET /api/posts/feed] Fetching feed posts');
+        const posts = await prisma.post.findMany({
+          orderBy: { createdAt: 'desc' },
+          include: {
+            author: {
+              select: {
+                id: true,
+                username: true,
+                profilePicture: true
+              }
+            },
+            likes: true
+          }
+        });
+  
+        const formattedPosts = posts.map(post => ({
+          id: post.id,
+          title: post.title,
+          description: post.description,
+          location: post.location,
+          price: post.price,
+          bedrooms: post.bedrooms,
+          bathrooms: post.bathrooms,
+          squareMeters: post.squareMeters,
+          imageUrls: post.imageUrls.map(url => `http://localhost:5000${url}`),
+          likes: post.likes.length,
+          createdAt: post.createdAt,
+          author: {
+            id: post.author.id.toString(),
+            username: post.author.username,
+            profilePicture: post.author.profilePicture ? `http://localhost:5000${post.author.profilePicture}` : null
+          }
+        }));
+  
+        console.log('[GET /api/posts/feed] Fetched posts:', formattedPosts.length);
+        res.json(formattedPosts);
+      } catch (error) {
+        console.error('[GET /api/posts/feed] Error:', error.message);
+        res.status(500).json({ message: 'Ошибка сервера' });
+      }
+    }
 
     async toggleLike(req, res) {
         try {

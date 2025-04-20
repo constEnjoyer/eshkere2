@@ -18,7 +18,6 @@ const storage = multer.diskStorage({
         cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
-        // Проверяем, что file.originalname существует
         if (!file.originalname || typeof file.originalname !== 'string') {
             return cb(new Error('Invalid file name'), false);
         }
@@ -57,9 +56,12 @@ const handleMulterError = (err, req, res, next) => {
 // Маршруты
 router.post('/', authMiddleware, upload, handleMulterError, PostsController.createPost);
 router.get('/', PostsController.getPosts);
+router.get('/top-agents', PostsController.getTopAgents);
+router.get('/trending', PostsController.getTrendingProperties);
+router.get('/feed', PostsController.getAllPosts);
 router.get('/user/:userId', PostsController.getUserPosts);
 router.get('/my', authMiddleware, PostsController.getMyPosts);
-router.get('/:id', PostsController.getPostById);
+router.get('/:id', PostsController.getPostById); // Перемещен ниже
 router.delete('/:id', authMiddleware, PostsController.deletePost);
 router.post('/:postId/like', authMiddleware, PostsController.toggleLike);
 router.post('/multiple', PostsController.getMultiplePosts);
