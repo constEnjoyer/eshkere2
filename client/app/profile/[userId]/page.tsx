@@ -124,8 +124,8 @@ export default function ProfilePage() {
 
       try {
         const url = userId
-          ? `http://localhost:5000/api/auth/user/${userId}`
-          : "http://localhost:5000/api/auth/user";
+          ? `http://localhost:5000/api/profile/${userId}`
+          : "http://localhost:5000/api/profile";
         console.log(`[ProfilePage] Fetching profile from ${url}`);
 
         const response = await fetch(url, {
@@ -134,8 +134,20 @@ export default function ProfilePage() {
           signal: controller.signal,
         });
 
+        const responseBody = await response.text();
+        console.log(`[ProfilePage] Response:`, {
+          status: response.status,
+          body: responseBody,
+          url,
+        });
+
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+          let errorData: { message?: string } = {};
+          try {
+            errorData = JSON.parse(responseBody);
+          } catch (e) {
+            console.error("[ProfilePage] Failed to parse error response:", e);
+          }
           console.error(`[ProfilePage] Profile fetch failed:`, {
             status: response.status,
             message: errorData.message || 'No error message',
@@ -150,7 +162,7 @@ export default function ProfilePage() {
           throw new Error(errorData.message || `Не удалось загрузить профиль: ${response.status}`);
         }
 
-        const data: Profile = await response.json();
+        const data: Profile = JSON.parse(responseBody);
         console.log("[ProfilePage] Profile data:", data);
         setProfile(data);
         setIsOwnProfile(!!user && user.id === data.id);
@@ -602,7 +614,7 @@ export default function ProfilePage() {
                             console.log(`[ProfilePage] Rendering post ${post.id}:`, { imageUrls: post.imageUrls });
                             return (
                               <Card key={post.id} className="overflow-hidden">
-                                <div className="relative h-32">
+                                <div className="card-image-container h-48">
                                   <Link href={`/real-estate/${post.id}`}>
                                     <Image
                                       src={post.imageUrls.length > 0 ? post.imageUrls[0] : "/placeholder.svg"}

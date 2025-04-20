@@ -111,6 +111,7 @@ export default function ProfilePage() {
 
     const fetchProfile = async () => {
       try {
+        setLoading(true);
         const url = "http://localhost:5000/api/auth/user";
         console.log("[ProfilePage] Fetching profile from:", url);
         const response = await fetch(url, {
@@ -122,9 +123,16 @@ export default function ProfilePage() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[ProfilePage] Profile fetch failed:", response.status, errorText);
-          throw new Error(
-            response.status === 401 ? "Требуется авторизация" : `Не удалось загрузить профиль: ${response.status}`
-          );
+          if (response.status === 401 || response.status === 403) {
+            toast({
+              title: "Ошибка авторизации",
+              description: "Сессия истекла, войдите снова",
+              variant: "destructive",
+            });
+            router.push("/login");
+            return;
+          }
+          throw new Error(`Не удалось загрузить профиль: ${response.status}`);
         }
 
         const data = await response.json();
@@ -160,12 +168,15 @@ export default function ProfilePage() {
           description: error.message || "Не удалось загрузить профиль",
           variant: "destructive",
         });
-        router.push("/");
+        router.push("/login");
+      } finally {
+        setLoading(false);
       }
     };
 
     const fetchPosts = async () => {
       try {
+        setLoading(true);
         const url = "http://localhost:5000/api/posts/my";
         console.log("[ProfilePage] Fetching posts from:", url);
         const response = await fetch(url, {
@@ -177,9 +188,16 @@ export default function ProfilePage() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("[ProfilePage] Posts fetch failed:", response.status, errorText);
-          throw new Error(
-            response.status === 401 ? "Требуется авторизация" : `Не удалось загрузить посты: ${response.status}`
-          );
+          if (response.status === 401 || response.status === 403) {
+            toast({
+              title: "Ошибка авторизации",
+              description: "Сессия истекла, войдите снова",
+              variant: "destructive",
+            });
+            router.push("/login");
+            return;
+          }
+          throw new Error(`Не удалось загрузить посты: ${response.status}`);
         }
 
         const data = await response.json();
@@ -230,14 +248,29 @@ export default function ProfilePage() {
   }, [user, isLoading, toast, router]);
 
   const fetchFriends = async () => {
+    const controller = new AbortController();
     try {
+      setLoading(true);
       const url = "http://localhost:5000/api/friends";
       console.log("[ProfilePage] Fetching friends from:", url);
-      const response = await fetch(url, { method: "GET", credentials: "include" });
+      const response = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        signal: controller.signal,
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Friends fetch failed:", response.status, errorText);
+        if (response.status === 401 || response.status === 403) {
+          toast({
+            title: "Ошибка авторизации",
+            description: "Сессия истекла, войдите снова",
+            variant: "destructive",
+          });
+          router.push("/login");
+          return;
+        }
         throw new Error(`Не удалось загрузить друзей: ${response.status}`);
       }
 
@@ -254,13 +287,17 @@ export default function ProfilePage() {
       setFriends(normalizedFriends);
       setFriendsDialogOpen(true);
     } catch (error: any) {
+      if (error.name === "AbortError") return;
       console.error("[ProfilePage] Error fetching friends:", error.message);
       toast({
         title: "Ошибка",
         description: error.message || "Не удалось загрузить друзей",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
+    return () => controller.abort();
   };
 
   const handleShareProfile = () => {
@@ -345,6 +382,15 @@ export default function ProfilePage() {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Profile save failed:", response.status, errorText);
+        if (response.status === 401 || response.status === 403) {
+          toast({
+            title: "Ошибка авторизации",
+            description: "Сессия истекла, войдите снова",
+            variant: "destructive",
+          });
+          router.push("/login");
+          return;
+        }
         throw new Error(`Не удалось обновить профиль: ${response.status}`);
       }
 
@@ -385,6 +431,15 @@ export default function ProfilePage() {
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[ProfilePage] Post delete failed:", response.status, errorText);
+        if (response.status === 401 || response.status === 403) {
+          toast({
+            title: "Ошибка авторизации",
+            description: "Сессия истекла, войдите снова",
+            variant: "destructive",
+          });
+          router.push("/login");
+          return;
+        }
         throw new Error(`Не удалось удалить пост: ${response.status}`);
       }
 
@@ -405,6 +460,11 @@ export default function ProfilePage() {
   if (isLoading) {
     console.log("[ProfilePage] Rendering: isLoading");
     return <div className="container px-4 py-8">Проверка авторизации...</div>;
+  }
+
+  if (!user) {
+    console.log("[ProfilePage] Rendering: no user");
+    return <div className="container px-4 py-8">Необходимо войти в систему</div>;
   }
 
   if (loading) {

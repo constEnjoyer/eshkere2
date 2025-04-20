@@ -5,7 +5,18 @@ class PostsController {
   async createPost(req, res) {
     try {
       const { userId } = req.user;
-      const { title, description, location, price, bedrooms, bathrooms, squareMeters } = req.body;
+      const {
+        title,
+        description,
+        location,
+        price,
+        bedrooms,
+        bathrooms,
+        squareMeters,
+        address,
+        propertyType,
+        yearBuilt,
+      } = req.body;
       console.log(`[POST /api/posts] Creating post for userId: ${userId}`, {
         title,
         description,
@@ -14,28 +25,38 @@ class PostsController {
         bedrooms,
         bathrooms,
         squareMeters,
+        address,
+        propertyType,
+        yearBuilt,
         filesCount: req.files?.length || 0,
       });
-
+  
       // Валидация обязательных полей
       if (!title || !description || !location || !price) {
         console.log(`[POST /api/posts] Missing required fields`);
         return res.status(400).json({ message: 'Все обязательные поля (title, description, location, price) должны быть заполнены' });
       }
-
+  
       // Валидация числовых полей
       const parsedPrice = parseFloat(price);
       if (isNaN(parsedPrice) || parsedPrice <= 0) {
         console.log(`[POST /api/posts] Invalid price: ${price}`);
         return res.status(400).json({ message: 'Цена должна быть положительным числом' });
       }
-
+  
+      // Валидация yearBuilt
+      const parsedYearBuilt = yearBuilt ? parseInt(yearBuilt) : null;
+      if (yearBuilt && (isNaN(parsedYearBuilt) || parsedYearBuilt < 1800 || parsedYearBuilt > new Date().getFullYear())) {
+        console.log(`[POST /api/posts] Invalid yearBuilt: ${yearBuilt}`);
+        return res.status(400).json({ message: 'Год постройки должен быть валидным числом между 1800 и текущим годом' });
+      }
+  
       // Проверка файлов
       if (!req.files || req.files.length === 0) {
         console.log(`[POST /api/posts] No files uploaded`);
         return res.status(400).json({ message: 'Требуется хотя бы одно изображение' });
       }
-
+  
       // Проверка существования пользователя
       const user = await prisma.users.findUnique({
         where: { id: parseInt(userId) },
@@ -44,10 +65,10 @@ class PostsController {
         console.log(`[POST /api/posts] User not found: ${userId}`);
         return res.status(404).json({ message: 'Пользователь не найден' });
       }
-
+  
       const imageUrls = req.files.map(file => `/Uploads/posts/${file.filename}`);
       console.log(`[POST /api/posts] Generated image URLs:`, imageUrls);
-
+  
       const post = await prisma.post.create({
         data: {
           title: title.trim(),
@@ -57,6 +78,9 @@ class PostsController {
           bedrooms: bedrooms ? parseInt(bedrooms) : null,
           bathrooms: bathrooms ? parseInt(bathrooms) : null,
           squareMeters: squareMeters ? parseInt(squareMeters) : null,
+          address: address ? address.trim() : null,
+          propertyType: propertyType ? propertyType.trim() : null,
+          yearBuilt: parsedYearBuilt,
           imageUrls,
           authorId: parseInt(userId),
           createdAt: new Date(),
@@ -74,7 +98,7 @@ class PostsController {
           },
         },
       });
-
+  
       const response = {
         id: post.id,
         authorId: post.authorId,
@@ -85,6 +109,9 @@ class PostsController {
         bedrooms: post.bedrooms,
         bathrooms: post.bathrooms,
         squareMeters: post.squareMeters,
+        address: post.address,
+        propertyType: post.propertyType,
+        yearBuilt: post.yearBuilt,
         imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
         createdAt: post.createdAt,
         likes: [], // Новый пост, лайков пока нет
@@ -97,7 +124,7 @@ class PostsController {
           skills: Array.isArray(post.author.skills) ? post.author.skills : [],
         },
       };
-
+  
       console.log(`[POST /api/posts] Post created:`, { id: response.id, title: response.title });
       res.status(201).json(response);
     } catch (error) {
@@ -127,7 +154,9 @@ class PostsController {
         },
         orderBy: { createdAt: 'desc' },
       });
-
+  
+      console.log(`[GET /api/posts] Raw posts from DB:`, posts); // Логирование сырых данных
+  
       const response = posts.map(post => ({
         id: post.id,
         authorId: post.authorId,
@@ -138,6 +167,9 @@ class PostsController {
         bedrooms: post.bedrooms,
         bathrooms: post.bathrooms,
         squareMeters: post.squareMeters,
+        address: post.address,
+        propertyType: post.propertyType,
+        yearBuilt: post.yearBuilt,
         imageUrls: Array.isArray(post.imageUrls) ? post.imageUrls.map(url => `http://localhost:5000${url}`) : [],
         createdAt: post.createdAt,
         likes: post.likes.map(like => like.userId),
@@ -150,8 +182,8 @@ class PostsController {
           skills: post.author.skills || [],
         },
       }));
-
-      console.log(`[GET /api/posts] Posts fetched: ${response.length}`);
+  
+      console.log(`[GET /api/posts] Processed response:`, response); // Логирование обработанных данных
       res.json(response);
     } catch (error) {
       console.error(`[GET /api/posts] Error:`, error.message, error.stack);

@@ -1,361 +1,426 @@
 "use client";
 
-import { useState, useRef } from "react";
+import type React from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-
-interface Seller {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  avatar?: string | null;
-  skills: string[];
-}
-
-interface Property {
-  id: number;
-  authorId: string;
-  title: string;
-  description: string;
-  location: string;
-  price: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  squareMeters?: number;
-  imageUrls: string[];
-  createdAt: string;
-  likes: string[];
-  seller: Seller;
-}
+import { Home, MapPin, Euro, SquareIcon, Upload, Calendar } from "lucide-react";
+import { useAuth } from "@/context/auth-context";
 
 interface NewListingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onPostCreated?: (post: Property) => void;
+  onPostCreated: (post: any) => void;
 }
 
-export default function NewListingModal({ open, onOpenChange, onPostCreated }: NewListingModalProps) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-  const [price, setPrice] = useState("");
-  const [bedrooms, setBedrooms] = useState("");
-  const [bathrooms, setBathrooms] = useState("");
-  const [squareMeters, setSquareMeters] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+export function NewListingModal({ open, onOpenChange, onPostCreated }: NewListingModalProps) {
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    price: "",
+    location: "",
+    address: "",
+    propertyType: "",
+    yearBuilt: "",
+    bedrooms: "2",
+    bathrooms: "1",
+    squareMeters: "",
+  });
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
 
-  const validateForm = () => {
-    const newErrors: { [key: string]: string } = {};
-
-    if (!title.trim()) newErrors.title = "Название обязательно";
-    if (!description.trim()) newErrors.description = "Описание обязательно";
-    if (!location.trim()) newErrors.location = "Местоположение обязательно";
-    if (!price || isNaN(Number(price)) || Number(price) <= 0)
-      newErrors.price = "Введите корректную цену";
-    if (files.length === 0) newErrors.images = "Требуется хотя бы одно изображение";
-    if (files.length > 10) newErrors.images = "Максимум 10 изображений";
-    if (bedrooms && (isNaN(Number(bedrooms)) || Number(bedrooms) < 0))
-      newErrors.bedrooms = "Введите корректное количество спален";
-    if (bathrooms && (isNaN(Number(bathrooms)) || Number(bathrooms) < 0))
-      newErrors.bathrooms = "Введите корректное количество ванных комнат";
-    if (squareMeters && (isNaN(Number(squareMeters)) || Number(squareMeters) <= 0))
-      newErrors.squareMeters = "Введите корректную площадь";
-
-    setErrors(newErrors);
-    console.log("[NewListingModal] Validation errors:", newErrors);
-    return Object.keys(newErrors).length === 0;
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files).filter((file) => {
-        if (!file.type.startsWith("image/")) {
-          toast({
-            title: "Ошибка",
-            description: `Файл ${file.name} не является изображением`,
-            variant: "destructive",
-          });
-          return false;
-        }
-        if (file.size > 5 * 1024 * 1024) {
-          toast({
-            title: "Ошибка",
-            description: `Файл ${file.name} превышает 5 МБ`,
-            variant: "destructive",
-          });
-          return false;
-        }
-        return true;
-      });
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-      console.log(
-        "[NewListingModal] Selected files:",
-        newFiles.map((f) => ({ name: f.name, size: f.size }))
-      );
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
 
-      setFiles((prev) => {
-        const updatedFiles = [...prev, ...newFiles].slice(0, 10);
-        console.log(
-          "[NewListingModal] Updated files:",
-          updatedFiles.map((f) => f.name)
-        );
-        return updatedFiles;
-      });
+    console.log("[NewListingModal] Selected files:", files);
 
-      setErrors((prev) => {
-        const { images, ...rest } = prev;
-        return rest;
-      });
+    const validFiles: File[] = [];
+    const previews: string[] = [];
 
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
+    for (let i = 0; i < Math.min(files.length, 10); i++) {
+      const file = files[i];
+      console.log("[NewListingModal] Processing file:", file.name, file.size, file.type);
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Файл слишком большой",
+          description: `${file.name} превышает лимит 5MB`,
+          variant: "destructive",
+        });
+        continue;
       }
+      if (!["image/png", "image/jpeg", "image/gif"].includes(file.type)) {
+        toast({
+          title: "Неподдерживаемый формат",
+          description: `${file.name} должен быть PNG, JPG или GIF`,
+          variant: "destructive",
+        });
+        continue;
+      }
+      validFiles.push(file);
+      previews.push(URL.createObjectURL(file));
     }
-  };
 
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    console.log("[NewListingModal] Removed file at index:", index);
-  };
-
-  const resetForm = () => {
-    setTitle("");
-    setDescription("");
-    setLocation("");
-    setPrice("");
-    setBedrooms("");
-    setBathrooms("");
-    setSquareMeters("");
-    setFiles([]);
-    setErrors({});
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    console.log("[NewListingModal] Valid files:", validFiles);
+    setImages(validFiles);
+    setImagePreviews(previews);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) {
-      console.log("[NewListingModal] Form validation failed:", errors);
+
+    if (!user || !user.id) {
       toast({
-        title: "Ошибка",
-        description: "Пожалуйста, исправьте ошибки в форме",
+        title: "Требуется авторизация",
+        description: "Пожалуйста, войдите, чтобы создать объявление",
+        variant: "destructive",
+      });
+      onOpenChange(false);
+      return;
+    }
+
+    if (!formData.title || !formData.description || !formData.price || !formData.location) {
+      toast({
+        title: "Заполните обязательные поля",
+        description: "Название, описание, цена и локация обязательны",
         variant: "destructive",
       });
       return;
     }
 
-    const formData = new FormData();
-    formData.append("title", title);
-    formData.append("description", description);
-    formData.append("location", location);
-    formData.append("price", price);
-    if (bedrooms) formData.append("bedrooms", bedrooms);
-    if (bathrooms) formData.append("bathrooms", bathrooms);
-    if (squareMeters) formData.append("squareMeters", squareMeters);
-
-    files.forEach((file, index) => {
-      formData.append("images", file);
-      console.log(`[NewListingModal] Adding file ${index + 1}: ${file.name}, size: ${file.size}`);
-    });
+    if (images.length === 0) {
+      toast({
+        title: "Требуется изображение",
+        description: "Загрузите хотя бы одно изображение",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
-      console.log("[NewListingModal] Sending request to http://localhost:5000/api/posts");
-      const response = await fetch("http://localhost:5000/api/posts", {
+      const formDataToSend = new FormData();
+      formDataToSend.append("title", formData.title);
+      formDataToSend.append("description", formData.description);
+      formDataToSend.append("price", parseFloat(formData.price).toString());
+      formDataToSend.append("location", formData.location);
+      if (formData.address) formDataToSend.append("address", formData.address);
+      if (formData.propertyType) formDataToSend.append("propertyType", formData.propertyType);
+      if (formData.yearBuilt) formDataToSend.append("yearBuilt", parseInt(formData.yearBuilt).toString());
+      if (formData.bedrooms) formDataToSend.append("bedrooms", parseInt(formData.bedrooms).toString());
+      if (formData.bathrooms) formDataToSend.append("bathrooms", parseInt(formData.bathrooms).toString());
+      if (formData.squareMeters) formDataToSend.append("squareMeters", parseInt(formData.squareMeters).toString());
+      images.forEach((file) => {
+        formDataToSend.append("images", file);
+      });
+
+      console.log("[NewListingModal] Sending FormData:", formDataToSend);
+
+      const res = await fetch("http://localhost:5000/api/posts", {
         method: "POST",
-        body: formData,
+        body: formDataToSend,
         credentials: "include",
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("[NewListingModal] Post creation failed:", {
-          status: response.status,
-          statusText: response.statusText,
-          errorData,
-        });
-        if (response.status === 401) {
-          throw new Error("Требуется авторизация. Пожалуйста, войдите в систему.");
-        }
-        if (response.status === 413) {
-          throw new Error("Слишком большой размер файлов. Уменьшите размер изображений.");
-        }
-        throw new Error(errorData.message || `Ошибка сервера: ${response.status}`);
+      if (!res.ok) {
+        const error = await res.json();
+        console.error("[NewListingModal] Server error:", error);
+        throw new Error(error.message || "Не удалось создать объявление");
       }
 
-      const data: Property = await response.json();
-      console.log("[NewListingModal] Post created:", {
-        id: data.id,
-        title: data.title,
-        imageUrls: data.imageUrls,
-      });
+      const createdPost = await res.json();
+      console.log("[NewListingModal] Post created:", createdPost);
+      onPostCreated(createdPost);
 
       toast({
-        title: "Успех",
-        description: "Объявление успешно создано",
+        title: "Объявление создано",
+        description: `Ваше объявление "${formData.title}" успешно создано.`,
       });
 
-      resetForm();
+      setFormData({
+        title: "",
+        description: "",
+        price: "",
+        location: "",
+        address: "",
+        propertyType: "",
+        yearBuilt: "",
+        bedrooms: "2",
+        bathrooms: "1",
+        squareMeters: "",
+      });
+      setImages([]);
+      setImagePreviews([]);
       onOpenChange(false);
-      if (onPostCreated) onPostCreated(data);
     } catch (error: any) {
-      console.error("[NewListingModal] Error:", error.message, error.stack);
-      let errorMessage = "Не удалось создать объявление";
-      if (error.message.includes("Failed to fetch")) {
-        errorMessage = "Не удалось подключиться к серверу. Проверьте, запущен ли сервер на localhost:5000.";
-      } else if (error.message.includes("Требуется авторизация")) {
-        errorMessage = error.message;
-      } else if (error.message.includes("Слишком большой размер")) {
-        errorMessage = error.message;
-      }
+      console.error("[NewListingModal] Error creating listing:", error);
       toast({
         title: "Ошибка",
-        description: errorMessage,
+        description: error.message || "Не удалось создать объявление",
         variant: "destructive",
       });
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => {
-      if (!isOpen) resetForm();
-      onOpenChange(isOpen);
-    }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Новое объявление</DialogTitle>
+          <DialogTitle className="text-xl flex items-center gap-2">
+            <Home className="h-5 w-5 text-primary" />
+            Создать новое объявление
+          </DialogTitle>
+          <DialogDescription>Заполните детали ниже, чтобы создать новое объявление о недвижимости.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="title">Название</Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Название объявления"
-            />
-            {errors.title && <p className="text-destructive text-sm">{errors.title}</p>}
-          </div>
-          <div>
-            <Label htmlFor="description">Описание</Label>
-            <Textarea
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Опишите недвижимость"
-              rows={4}
-            />
-            {errors.description && <p className="text-destructive text-sm">{errors.description}</p>}
-          </div>
-          <div>
-            <Label htmlFor="location">Местоположение</Label>
-            <Input
-              id="location"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Город, адрес"
-            />
-            {errors.location && <p className="text-destructive text-sm">{errors.location}</p>}
-          </div>
-          <div>
-            <Label htmlFor="price">Цена (€)</Label>
-            <Input
-              id="price"
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="Цена"
-              min="0"
-            />
-            {errors.price && <p className="text-destructive text-sm">{errors.price}</p>}
-          </div>
-          <div>
-            <Label htmlFor="bedrooms">Спальни</Label>
-            <Input
-              id="bedrooms"
-              type="number"
-              value={bedrooms}
-              onChange={(e) => setBedrooms(e.target.value)}
-              placeholder="Количество спален"
-              min="0"
-            />
-            {errors.bedrooms && <p className="text-destructive text-sm">{errors.bedrooms}</p>}
-          </div>
-          <div>
-            <Label htmlFor="bathrooms">Ванные комнаты</Label>
-            <Input
-              id="bathrooms"
-              type="number"
-              value={bathrooms}
-              onChange={(e) => setBathrooms(e.target.value)}
-              placeholder="Количество ванных комнат"
-              min="0"
-            />
-            {errors.bathrooms && <p className="text-destructive text-sm">{errors.bathrooms}</p>}
-          </div>
-          <div>
-            <Label htmlFor="squareMeters">Площадь (м²)</Label>
-            <Input
-              id="squareMeters"
-              type="number"
-              value={squareMeters}
-              onChange={(e) => setSquareMeters(e.target.value)}
-              placeholder="Площадь"
-              min="0"
-            />
-            {errors.squareMeters && <p className="text-destructive text-sm">{errors.squareMeters}</p>}
-          </div>
-          <div>
-            <Label htmlFor="images">Изображения (макс. 10)</Label>
-            <Input
-              id="images"
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={handleFileChange}
-              ref={fileInputRef}
-            />
-            {files.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {files.map((file, index) => (
-                  <li key={index} className="flex items-center gap-2 text-sm text-gray-600">
-                    {file.name}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeFile(index)}
-                      className="text-destructive"
+
+        <form onSubmit={handleSubmit} className="space-y-6 py-4">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="title" className="text-right">
+                Название <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="title"
+                name="title"
+                value={formData.title}
+                onChange={handleChange}
+                placeholder="например, Люксовая вилла с видом на море"
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="description" className="text-right">
+                Описание <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="description"
+                name="description"
+                value={formData.description}
+                onChange={handleChange}
+                placeholder="Опишите недвижимость..."
+                className="mt-1 min-h-[100px]"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="propertyType" className="text-right">
+                Тип недвижимости
+              </Label>
+              <Select
+                name="propertyType"
+                value={formData.propertyType}
+                onValueChange={(value) => handleSelectChange("propertyType", value)}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Выберите тип недвижимости" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="apartment">Квартира</SelectItem>
+                  <SelectItem value="house">Дом</SelectItem>
+                  <SelectItem value="villa">Вилла</SelectItem>
+                  <SelectItem value="bungalow">Бунгало</SelectItem>
+                  <SelectItem value="townhouse">Таунхаус</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="price" className="text-right">
+                  Цена <span className="text-red-500">*</span>
+                </Label>
+                <div className="relative mt-1">
+                  <Euro className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="price"
+                    name="price"
+                    type="number"
+                    value={formData.price}
+                    onChange={handleChange}
+                    placeholder="например, 250000"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="location" className="text-right">
+                  Локация <span className="text-red-500">*</span>
+                </Label>
+                <div className="relative mt-1">
+                  <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="location"
+                    name="location"
+                    value={formData.location}
+                    onChange={handleChange}
+                    placeholder="например, Барселона, Испания"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="address" className="text-right">
+                Адрес
+              </Label>
+              <Input
+                id="address"
+                name="address"
+                value={formData.address}
+                onChange={handleChange}
+                placeholder="например, Calle Finlandia 10"
+                className="mt-1"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="yearBuilt" className="text-right">
+                  Год постройки
+                </Label>
+                <div className="relative mt-1">
+                  <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="yearBuilt"
+                    name="yearBuilt"
+                    type="number"
+                    value={formData.yearBuilt}
+                    onChange={handleChange}
+                    placeholder="например, 2010"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="squareMeters" className="text-right">
+                  Площадь (м²)
+                </Label>
+                <div className="relative mt-1">
+                  <SquareIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="squareMeters"
+                    name="squareMeters"
+                    type="number"
+                    value={formData.squareMeters}
+                    onChange={handleChange}
+                    placeholder="например, 120"
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="bedrooms" className="text-right">
+                  Спальни
+                </Label>
+                <Input
+                  id="bedrooms"
+                  name="bedrooms"
+                  type="number"
+                  value={formData.bedrooms}
+                  onChange={handleChange}
+                  placeholder="например, 2"
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="bathrooms" className="text-right">
+                  Ванные
+                </Label>
+                <Input
+                  id="bathrooms"
+                  name="bathrooms"
+                  type="number"
+                  value={formData.bathrooms}
+                  onChange={handleChange}
+                  placeholder="например, 1"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-right">
+                Изображения недвижимости <span className="text-red-500">*</span>
+              </Label>
+              <div className="mt-1 flex justify-center rounded-lg border border-dashed border-gray-300 px-6 py-10">
+                <div className="text-center">
+                  <Upload className="mx-auto h-12 w-12 text-muted-foreground" />
+                  <div className="mt-4 flex text-sm leading-6 text-muted-foreground">
+                    <label
+                      htmlFor="file-upload"
+                      className="relative cursor-pointer rounded-md bg-white font-semibold text-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-primary"
                     >
-                      Удалить
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {errors.images && <p className="text-destructive text-sm">{errors.images}</p>}
+                      <span>Загрузить файлы</span>
+                      <input
+                        id="file-upload"
+                        name="file-upload"
+                        type="file"
+                        className="sr-only"
+                        multiple
+                        accept="image/png,image/jpeg,image/gif"
+                        onChange={handleImageChange}
+                      />
+                    </label>
+                    <p className="pl-1">или перетащите</p>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    PNG, JPG, GIF до 5MB (макс. 10 изображений)
+                  </p>
+                  {imagePreviews.length > 0 && (
+                    <div className="mt-4 grid grid-cols-4 gap-2">
+                      {imagePreviews.map((preview, index) => (
+                        <img
+                          key={index}
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="h-16 w-16 object-cover rounded"
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="sticky bottom-0 bg-white py-4 flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                console.log("[NewListingModal] Closing modal");
-                onOpenChange(false);
-              }}
-            >
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>
-            <Button type="submit">Создать</Button>
-          </div>
+            <Button type="submit" className="bg-primary hover:bg-primary/90">
+              Создать объявление
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

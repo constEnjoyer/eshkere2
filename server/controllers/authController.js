@@ -92,13 +92,25 @@ class AuthController {
 
             res.cookie('jwt', token, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'lax',
+                secure: false, // Как в gg
+                sameSite: 'lax', // Как в gg
                 maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+                path: '/',
             });
 
-            console.log('[POST /api/auth/login] Login successful:', { userId: user.id });
-            return res.json({ message: 'Вход выполнен успешно' });
+            console.log('[POST /api/auth/login] Cookie set:', {
+                token,
+                userId: user.id,
+                headers: res.getHeaders(),
+                cookieOptions: {
+                    httpOnly: true,
+                    secure: false,
+                    sameSite: 'lax',
+                    maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+                    path: '/'
+                }
+            });
+            return res.json({ message: 'Вход выполнен успешно', userId: user.id });
         } catch (error) {
             console.error('[POST /api/auth/login] Error:', error.message, error.stack);
             res.status(500).json({ message: 'Ошибка сервера', error: error.message });
@@ -193,7 +205,7 @@ class AuthController {
             console.log('[POST /api/auth/logout] Logging out');
             res.clearCookie('jwt', {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
+                secure: false,
                 sameSite: 'lax',
             });
             return res.json({ message: 'Выход выполнен успешно' });
@@ -330,18 +342,22 @@ class AuthController {
 
     async getUser(req, res) {
         try {
-            let userId = req.user.userId;
+            const userId = req.user.id;
             console.log('[GET /api/auth/user] Fetching user:', { userId, cookie: req.cookies.jwt });
 
-            userId = parseInt(userId);
-            if (isNaN(userId)) {
-                console.error('[GET /api/auth/user] Invalid userId:', req.user.userId);
+            if (!userId) {
+                console.error('[GET /api/auth/user] Invalid userId:', req.user.id);
                 return res.status(400).json({ message: 'Недействительный ID пользователя' });
             }
 
             const user = await prisma.users.findUnique({
                 where: { id: userId },
-                include: { user_roles: { include: { roles: true } } },
+                include: {
+                    user_roles: { include: { roles: true } },
+                    userFriendships: { where: { status: 'accepted' } },
+                    friendFriendships: { where: { status: 'accepted' } },
+                    posts: { select: { id: true } },
+                },
             });
 
             if (!user) {
@@ -355,11 +371,15 @@ class AuthController {
                 email: user.email,
                 roles: user.user_roles.map(ur => ur.roles.value),
                 isActive: user.isActive,
-                profilePicture: user.profilePicture || null,
+                profilePicture: user.profilePicture ? `http://localhost:5000${user.profilePicture}` : null,
                 bio: user.bio || '',
                 phone: user.phone || '',
                 location: user.location || '',
                 age: user.age || null,
+                skills: user.skills || [],
+                friendsCount: user.userFriendships.length + user.friendFriendships.length,
+                postsCount: user.posts.length,
+                eventsCount: user.posts.length,
             };
 
             console.log('[GET /api/auth/user] User fetched:', formattedUser);

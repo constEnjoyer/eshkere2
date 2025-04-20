@@ -86,7 +86,9 @@ router.post('/', async(req, res) => {
             return res.status(404).json({ message: 'Recipient not found' });
         }
 
-        // Опционально: Проверка, что пользователи — друзья
+        // Проверка дружбы убрана, чтобы любой авторизованный пользователь мог отправить сообщение
+        // Ранее здесь был код:
+        /*
         const friendship = await prisma.friendship.findFirst({
             where: {
                 OR: [
@@ -96,9 +98,9 @@ router.post('/', async(req, res) => {
             },
         });
         if (!friendship) {
-            console.log(`[POST /api/messages] No accepted friendship between userId: ${userId} and friendId: ${parsedFriendId}`);
             return res.status(403).json({ message: 'You can only message accepted friends' });
         }
+        */
 
         // Создание сообщения
         const message = await prisma.message.create({

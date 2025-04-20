@@ -1,16 +1,14 @@
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-module.exports = function(req, res, next) {
-    if (req.method === 'OPTIONS') {
-        return next();
-    }
-
+module.exports = async(req, res, next) => {
     try {
+        console.log('[authMiddleware] Checking token:', { cookie: req.cookies.jwt, headers: req.headers });
         const token = req.cookies.jwt;
+
         if (!token) {
-            console.log('[authMiddleware] No token provided', { url: req.originalUrl });
-            return res.status(401).json({ message: 'Пользователь не авторизован (отсутствует токен в куках)' });
+            console.log('[authMiddleware] No token provided');
+            return res.status(401).json({ message: 'Нет токена, авторизация отклонена' });
         }
 
         if (!process.env.SECRET_KEY) {
@@ -19,16 +17,12 @@ module.exports = function(req, res, next) {
         }
 
         const decoded = jwt.verify(token, process.env.SECRET_KEY);
-        if (!decoded.id) {
-            console.log('[authMiddleware] Token does not contain user ID', { token });
-            return res.status(401).json({ message: 'Токен не содержит ID пользователя' });
-        }
+        console.log('[authMiddleware] Token verified:', decoded);
 
-        req.user = { userId: decoded.id, roles: decoded.roles || [] };
-        console.log('[authMiddleware] Authenticated user:', { userId: req.user.userId, url: req.originalUrl });
+        req.user = decoded;
         next();
     } catch (error) {
-        console.error('[authMiddleware] Error:', error.message, { url: req.originalUrl });
-        return res.status(403).json({ message: 'Пользователь не авторизован (недействительный или истёкший токен)' });
+        console.error('[authMiddleware] Error:', error.message, error.stack);
+        res.status(401).json({ message: 'Недействительный токен' });
     }
 };

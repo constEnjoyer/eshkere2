@@ -15,7 +15,7 @@ router.get('/:id', async(req, res) => {
             return res.status(400).json({ message: 'Invalid user ID' });
         }
         console.log(`[GET /api/users/${userId}] Fetching user`);
-        const user = await prisma.user.findUnique({
+        const user = await prisma.users.findUnique({
             where: { id: userId },
             select: { id: true, username: true, profilePicture: true },
         });
@@ -23,6 +23,7 @@ router.get('/:id', async(req, res) => {
             console.log(`[GET /api/users/${userId}] User not found`);
             return res.status(404).json({ message: 'User not found' });
         }
+        console.log(`[GET /api/users/${userId}] User fetched:`, user);
         res.json({
             id: user.id,
             username: user.username,

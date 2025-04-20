@@ -1,149 +1,95 @@
 "use client";
 
-import type React from "react";
-import { createContext, useContext, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
 
-export type User = {
-  skills: never[];
-  id: string;
-  username: string;
-  email: string;
-  roles: string[];
-  isActive: boolean;
-  profilePicture?: string | null;
-  bio?: string | null;
-  phone?: string | null;
-  location?: string | null;
-  age?: number | null;
-};
-
-type AuthContextType = {
-  user: User | null;
+interface AuthContextType {
+  user: any | null;
+  isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ success: boolean; message: string }>;
-  register: (userData: { username: string; email: string; password: string }) => Promise<{ success: boolean; message: string }>;
+  login: (email: string, password: string, rememberMe: boolean) => Promise<{ success: boolean; message: string }>;
+  register: (username: string, email: string, password: string) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
-};
+  checkAuth: () => Promise<void>;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<any | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [justLoggedIn, setJustLoggedIn] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const { toast } = useToast();
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
+    console.log("[AuthProvider] Checking auth status...", { pathname, cookies: document.cookie, justLoggedIn });
+    setIsLoading(true);
     try {
-      console.log("[AuthProvider] Checking auth status...", {
-        cookies: document.cookie,
-        url: "http://localhost:5000/api/auth/user",
-        pathname: window.location.pathname,
-      });
+      const cookies = document.cookie.split(';').map(cookie => cookie.trim());
+      const jwtCookie = cookies.find(cookie => cookie.startsWith('jwt='));
+      console.log("[AuthProvider] JWT cookie check:", { jwtCookie, cookies });
+
+      if (!jwtCookie) {
+        console.log("[AuthProvider] No JWT token found in cookies");
+        setIsAuthenticated(false);
+        setUser(null);
+        if (!["/login", "/register", "/forgot-password"].includes(pathname) && !justLoggedIn) {
+          console.log("[AuthProvider] Redirecting to /login");
+          router.replace("/login");
+        }
+        return;
+      }
 
       const response = await fetch("http://localhost:5000/api/auth/user", {
         method: "GET",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
       });
 
-      console.log("[AuthProvider] Response status:", response.status, {
-        headers: [...response.headers.entries()],
+      console.log("[AuthProvider] CheckAuth response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+        requestCookies: document.cookie,
       });
 
       if (!response.ok) {
-        let errorData: { message?: string } = {};
-        try {
-          errorData = await response.json();
-        } catch (jsonError: unknown) {
-          console.error("[AuthProvider] Failed to parse error response:", jsonError);
-        }
-        console.error("[AuthProvider] Fetch user failed:", {
-          status: response.status,
-          message: errorData.message || "No error message",
-          cookies: document.cookie,
-          responseHeaders: [...response.headers.entries()],
-        });
-
-        if (response.status === 401 || response.status === 403) {
-          setUser(null);
-          if (window.location.pathname !== "/login") {
-            toast({
-              title: "Ошибка авторизации",
-              description: "Ваша сессия истекла. Пожалуйста, войдите снова.",
-              variant: "destructive",
-            });
-            router.push("/login");
-          }
-          return;
-        }
-
-        throw new Error(errorData.message || `Failed to fetch user: ${response.status}`);
+        throw new Error(`HTTP error ${response.status}: ${await response.text()}`);
       }
 
-      const userData = await response.json();
-      console.log("[AuthProvider] User fetched:", userData);
+      const data = await response.json();
+      console.log("[AuthProvider] User data:", data);
 
-      if (!userData.id || !userData.username || !userData.email) {
-        throw new Error("Invalid user data received from server");
-      }
-
-      setUser({
-        skills: Array.isArray(userData.skills) ? userData.skills : [],
-        id: userData.id,
-        username: userData.username,
-        email: userData.email,
-        roles: Array.isArray(userData.roles) ? userData.roles : [],
-        isActive: !!userData.isActive,
-        profilePicture: userData.profilePicture || null,
-        bio: userData.bio || null,
-        phone: userData.phone || null,
-        location: userData.location || null,
-        age: typeof userData.age === "number" ? userData.age : null,
-      });
-    } catch (error: unknown) {
+      setUser(data);
+      setIsAuthenticated(true);
+    } catch (error) {
       const err = error instanceof Error ? error : new Error("Unknown error");
-      console.error("[AuthProvider] Error checking auth:", {
+      console.error("[AuthProvider] CheckAuth error:", {
         message: err.message,
         stack: err.stack,
         cookies: document.cookie,
-        pathname: window.location.pathname,
+        pathname,
       });
-
-      let errorMessage = "Не удалось проверить авторизацию.";
-      if (err.message.includes("Failed to fetch")) {
-        errorMessage = "Не удалось подключиться к серверу. Проверьте, запущен ли сервер на localhost:5000.";
-      } else if (err.message.includes("Invalid user data")) {
-        errorMessage = "Получены некорректные данные пользователя от сервера.";
-      }
-
+      setIsAuthenticated(false);
       setUser(null);
-      if (window.location.pathname !== "/login") {
-        toast({
-          title: "Ошибка",
-          description: errorMessage,
-          variant: "destructive",
-        });
+      if (!["/login", "/register", "/forgot-password"].includes(pathname) && !justLoggedIn) {
+        console.log("[AuthProvider] Redirecting to /login due to error");
+        router.replace("/login");
       }
     } finally {
       setIsLoading(false);
+      setJustLoggedIn(false);
+      console.log("[AuthProvider] CheckAuth completed:", { isAuthenticated, user });
     }
-  };
+  }, [pathname, router, justLoggedIn]);
 
-  useEffect(() => {
-    console.log("[AuthProvider] Mounting, triggering checkAuth");
-    checkAuth();
-  }, [router]);
-
-  const login = async (email: string, password: string, rememberMe = false) => {
+  const login = async (email: string, password: string, rememberMe: boolean) => {
+    console.log("[AuthProvider] Logging in:", { email, rememberMe });
     try {
-      console.log("[AuthProvider] Logging in:", email, { rememberMe });
       const response = await fetch("http://localhost:5000/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -151,140 +97,140 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password, rememberMe }),
       });
 
-      console.log("[AuthProvider] Login response status:", response.status);
-      const data = await response.json();
+      console.log("[AuthProvider] Login response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: response.headers ? Object.fromEntries(response.headers.entries()) : {},
+        cookies: document.cookie,
+        setCookie: response.headers ? response.headers.get('set-cookie') : null,
+      });
+
       if (!response.ok) {
-        console.error("[AuthProvider] Login failed:", response.status, data.message || "No error message");
-        return { success: false, message: data.message || "Failed to login" };
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Login failed: HTTP ${response.status}`);
       }
 
-      const userResponse = await fetch("http://localhost:5000/api/auth/user", {
-        credentials: "include",
+      const data = await response.json();
+      console.log("[AuthProvider] Login successful:", data);
+
+      toast({ title: "Успех", description: "Вы успешно вошли в систему" });
+      setJustLoggedIn(true);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Задержка из gg
+      await checkAuth();
+      return { success: true, message: "Login successful" };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error("Unknown error");
+      console.error("[AuthProvider] Login error:", {
+        message: err.message,
+        stack: err.stack,
+        cookies: document.cookie,
       });
-      console.log("[AuthProvider] User fetch response status:", userResponse.status);
-      if (!userResponse.ok) {
-        const errorData = await userResponse.json().catch(() => ({}));
-        console.error("[AuthProvider] User fetch failed:", userResponse.status, errorData.message || "No error message");
-        throw new Error(errorData.message || "Failed to fetch user profile");
-      }
-
-      const userData = await userResponse.json();
-      console.log("[AuthProvider] Login successful:", userData);
-
-      if (!userData.id || !userData.username || !userData.email) {
-        throw new Error("Invalid user data received from server");
-      }
-
-      setUser({
-        skills: Array.isArray(userData.skills) ? userData.skills : [],
-        id: userData.id,
-        username: userData.username,
-        email: userData.email,
-        roles: Array.isArray(userData.roles) ? userData.roles : [],
-        isActive: !!userData.isActive,
-        profilePicture: userData.profilePicture || null,
-        bio: userData.bio || null,
-        phone: userData.phone || null,
-        location: userData.location || null,
-        age: typeof userData.age === "number" ? userData.age : null,
-      });
-
       toast({
-        title: "Успех",
-        description: "Вы успешно вошли в систему",
-      });
-      router.push("/");
-      return { success: true, message: data.message || "Login successful" };
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error("[AuthProvider] Login error:", err.message);
-      toast({
-        title: "Ошибка входа",
-        description: err.message || "Не удалось войти. Проверьте email и пароль.",
+        title: "Ошибка",
+        description: err.message.includes("fetch") ? "Не удалось подключиться к серверу. Проверьте, работает ли сервер." : err.message,
         variant: "destructive",
       });
-      return { success: false, message: err.message || "An error occurred during login" };
+      return { success: false, message: err.message };
     }
   };
 
-  const register = async (userData: { username: string; email: string; password: string }) => {
+  const register = async (username: string, email: string, password: string) => {
+    console.log("[AuthProvider] Registering:", { username, email });
     try {
-      console.log("[AuthProvider] Registering:", userData.email);
       const response = await fetch("http://localhost:5000/api/auth/registration", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(userData),
+        body: JSON.stringify({ username, email, password }),
       });
 
-      console.log("[AuthProvider] Registration response status:", response.status);
-      const data = await response.json();
+      console.log("[AuthProvider] Register response:", {
+        status: response.status,
+        ok: response.ok,
+        headers: response.headers ? Object.fromEntries(response.headers.entries()) : {},
+      });
+
       if (!response.ok) {
-        console.error("[AuthProvider] Registration failed:", response.status, data.message || "No error message");
-        return { success: false, message: data.message || "Failed to register" };
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Registration failed: HTTP ${response.status}`);
       }
 
-      toast({
-        title: "Успех",
-        description: "Регистрация прошла успешно. Пожалуйста, войдите.",
+      const data = await response.json();
+      console.log("[AuthProvider] Register successful:", data);
+
+      toast({ title: "Успех", description: data.message });
+      router.replace("/login");
+      return { success: true, message: data.message };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error("Unknown error");
+      console.error("[AuthProvider] Register error:", {
+        message: err.message,
+        stack: err.stack,
+        cookies: document.cookie,
       });
-      router.push("/login");
-      return { success: true, message: data.message || "Registration successful" };
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error("[AuthProvider] Registration error:", err.message);
       toast({
-        title: "Ошибка регистрации",
-        description: err.message || "Не удалось зарегистрироваться.",
+        title: "Ошибка",
+        description: err.message.includes("fetch") ? "Не удалось подключиться к серверу. Проверьте, работает ли сервер." : err.message,
         variant: "destructive",
       });
-      return { success: false, message: err.message || "An error occurred during registration" };
+      return { success: false, message: err.message };
     }
   };
 
   const logout = async () => {
+    console.log("[AuthProvider] Logging out");
     try {
-      console.log("[AuthProvider] Logging out...");
       const response = await fetch("http://localhost:5000/api/auth/logout", {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
       });
 
-      console.log("[AuthProvider] Logout response status:", response.status);
+      console.log("[AuthProvider] Logout response:", {
+        status: response.status,
+        ok: response.ok,
+        cookies: document.cookie,
+      });
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("[AuthProvider] Logout failed:", response.status, errorData.message || "No error message");
-        throw new Error(errorData.message || "Failed to logout");
+        throw new Error(`Logout failed: HTTP ${response.status}`);
       }
 
       setUser(null);
-      toast({
-        title: "Успех",
-        description: "Вы вышли из системы",
+      setIsAuthenticated(false);
+      toast({ title: "Успех", description: "Вы вышли из системы" });
+      router.replace("/login");
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error("Unknown error");
+      console.error("[AuthProvider] Logout error:", {
+        message: err.message,
+        stack: err.stack,
+        cookies: document.cookie,
       });
-      router.push("/login");
-    } catch (error: unknown) {
-      const err = error as Error;
-      console.error("[AuthProvider] Logout error:", err.message);
       toast({
         title: "Ошибка",
-        description: "Не удалось выйти из системы",
+        description: err.message.includes("fetch") ? "Не удалось подключиться к серверу." : err.message,
         variant: "destructive",
       });
     }
   };
 
+  useEffect(() => {
+    console.log("[AuthProvider] Mounting, triggering checkAuth", { cookies: document.cookie });
+    checkAuth();
+  }, [checkAuth]);
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
+};

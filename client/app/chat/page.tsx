@@ -11,8 +11,22 @@ import { cn } from "@/lib/utils";
 import ProtectedRoute from "@/components/protected-route";
 import { useAuth } from "@/context/auth-context";
 import { useRouter } from "next/navigation";
+import { Socket } from "socket.io-client";
 import io from "socket.io-client";
-import type { Socket } from "socket.io-client";
+
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  roles: string[];
+  isActive: boolean;
+  profilePicture?: string | null;
+  bio?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  age?: number | null;
+  skills: never[];
+}
 
 interface Contact {
   id: string;
@@ -29,9 +43,17 @@ interface Message {
   status: "sent" | "read";
 }
 
+interface SocketMessage {
+  id: number;
+  senderId: number;
+  receiverId: number;
+  content: string;
+  createdAt: string;
+}
+
 export default function ChatPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [activeChat, setActiveChat] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -42,15 +64,25 @@ export default function ChatPage() {
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Инициализация сокета и загрузка контактов
   useEffect(() => {
+    const controller = new AbortController();
+    let authCheckTimeout: NodeJS.Timeout;
+
+    if (isLoading) {
+      console.log("[ChatPage] Auth is loading, waiting...");
+      return;
+    }
+
     if (!user) {
-      toast({
-        title: "Ошибка",
-        description: "Требуется авторизация",
-        variant: "destructive",
-      });
-      router.push("/login");
+      console.log("[ChatPage] No user, delaying redirect to login");
+      authCheckTimeout = setTimeout(() => {
+        toast({
+          title: "Ошибка",
+          description: "Требуется авторизация",
+          variant: "destructive",
+        });
+        router.push("/login");
+      }, 4000);
       setLoading(false);
       return;
     }
@@ -58,19 +90,29 @@ export default function ChatPage() {
     const fetchContacts = async () => {
       try {
         setLoading(true);
-        console.log("[ChatPage] Fetching friends from /api/friends");
+        console.log("[ChatPage] Fetching friends from /api/friends", { userId: user.id });
         const friendsResponse = await fetch("http://localhost:5000/api/friends", {
           method: "GET",
           credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          signal: controller.signal,
         });
 
         if (!friendsResponse.ok) {
           const text = await friendsResponse.text();
-          console.error("[ChatPage] Friends fetch failed:", friendsResponse.status, text);
+          console.error("[ChatPage] Friends fetch failed:", {
+            status: friendsResponse.status,
+            statusText: friendsResponse.statusText,
+            responseText: text.slice(0, 200),
+            cookies: document.cookie,
+          });
           if (friendsResponse.status === 401 || friendsResponse.status === 403) {
             toast({
               title: "Ошибка авторизации",
-              description: "Пожалуйста, войдите снова",
+              description: "Сессия истекла, войдите снова",
               variant: "destructive",
             });
             router.push("/login");
@@ -79,50 +121,71 @@ export default function ChatPage() {
           throw new Error(`Failed to fetch friends: ${friendsResponse.status} ${text.slice(0, 100)}`);
         }
 
-        const friends = await friendsResponse.json();
-        let mappedContacts = friends.map((friend: any) => ({
+        const friends: Array<{ id: number; username: string; profilePicture?: string }> =
+          await friendsResponse.json();
+        console.log("[ChatPage] Friends fetched:", friends);
+        const mappedContacts: Contact[] = friends.map((friend) => ({
           id: friend.id.toString(),
           name: friend.username,
           avatar: friend.profilePicture ? `http://localhost:5000${friend.profilePicture}` : "/placeholder.svg",
           online: false,
         }));
 
-        // Проверяем localStorage для activeChat
         const storedChatId = localStorage.getItem("activeChat");
-        if (storedChatId) {
+        if (storedChatId && !isNaN(parseInt(storedChatId))) {
           console.log("[ChatPage] Found activeChat in localStorage:", storedChatId);
-          let contactExists = mappedContacts.find((contact: Contact) => contact.id === storedChatId);
+          let contactExists = mappedContacts.find((contact) => contact.id === storedChatId);
 
           if (!contactExists) {
             console.log("[ChatPage] Fetching user data from /api/users/", storedChatId);
             const userResponse = await fetch(`http://localhost:5000/api/users/${storedChatId}`, {
               method: "GET",
               credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+              },
+              signal: controller.signal,
             });
 
             if (!userResponse.ok) {
               const text = await userResponse.text();
-              console.error("[ChatPage] User fetch failed:", userResponse.status, text);
-              if (userResponse.status === 401 || userResponse.status === 403) {
+              console.error("[ChatPage] User fetch failed:", {
+                status: userResponse.status,
+                statusText: userResponse.statusText,
+                responseText: text.slice(0, 200),
+                cookies: document.cookie,
+              });
+              if (userResponse.status === 401 || friendsResponse.status === 403) {
                 toast({
                   title: "Ошибка авторизации",
-                  description: "Пожалуйста, войдите снова",
+                  description: "Сессия истекла, войдите снова",
                   variant: "destructive",
                 });
                 router.push("/login");
                 return;
               }
+              if (userResponse.status === 404) {
+                toast({
+                  title: "Ошибка",
+                  description: "Пользователь не найден",
+                  variant: "destructive",
+                });
+                localStorage.removeItem("activeChat");
+                return;
+              }
               throw new Error(`Failed to fetch user: ${userResponse.status} ${text.slice(0, 100)}`);
             }
 
-            const userData = await userResponse.json();
+            const userData: { id: number; username: string; profilePicture?: string } =
+              await userResponse.json();
             contactExists = {
               id: userData.id.toString(),
               name: userData.username,
               avatar: userData.profilePicture ? `http://localhost:5000${userData.profilePicture}` : "/placeholder.svg",
               online: false,
             };
-            mappedContacts = [...mappedContacts, contactExists];
+            mappedContacts.push(contactExists);
           }
 
           setActiveChat(storedChatId);
@@ -131,11 +194,18 @@ export default function ChatPage() {
         }
 
         setContacts(mappedContacts);
-      } catch (error) {
-        console.error("[ChatPage] Error fetching contacts:", error);
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("[ChatPage] Error fetching contacts:", {
+          message: error instanceof Error ? error.message : "Unknown error",
+          name: error instanceof Error ? error.name : "Unknown",
+          stack: error instanceof Error ? error.stack : "No stack",
+        });
         toast({
           title: "Ошибка",
-          description: "Не удалось загрузить контакты",
+          description: `Не удалось загрузить контакты: ${
+            error instanceof Error ? error.message : "Неизвестная ошибка"
+          }`,
           variant: "destructive",
         });
       } finally {
@@ -145,29 +215,39 @@ export default function ChatPage() {
 
     fetchContacts();
 
+    console.log("[ChatPage] Initializing Socket.IO, checking cookies:", document.cookie);
     const newSocket = io("http://localhost:5000", {
-      auth: { token: document.cookie.split("; ").find(row => row.startsWith("jwt="))?.split("=")[1] },
+      auth: { withCredentials: true },
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
-      console.log(`[ChatPage] Connected to socket as user ${user.id}`);
+      console.log(`[ChatPage] Connected to socket as user ${user?.id}`);
+      toast({
+        title: "Чат подключен",
+        description: "Соединение с чатом установлено",
+      });
     });
 
-    newSocket.on("message", (msg: any) => {
+    newSocket.on("message", (msg: SocketMessage) => {
       console.log("[ChatPage] Received socket message:", msg);
       setMessages((prev) => {
-        const chatId = msg.senderId.toString() === user.id.toString() ? msg.receiverId.toString() : msg.senderId.toString();
+        const chatId = msg.senderId.toString() === user?.id.toString() ? msg.receiverId.toString() : msg.senderId.toString();
         return {
           ...prev,
           [chatId]: [
             ...(prev[chatId] || []),
             {
               id: msg.id,
-              sender: msg.senderId.toString() === user.id.toString() ? "me" : chatId,
+              sender: msg.senderId.toString() === user?.id.toString() ? "me" : chatId,
               text: msg.content,
               time: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              status: "read",
+              status: "read" as const,
             },
           ],
         };
@@ -175,23 +255,43 @@ export default function ChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
 
-    newSocket.on("error", (error: any) => {
-      console.error("[ChatPage] Socket error:", error);
+    newSocket.on("error", (error: { message?: string } | null) => {
+      console.error("[ChatPage] Socket error:", {
+        error: error || "No error data",
+        message: error?.message || "Unknown error",
+        cookies: document.cookie,
+      });
       toast({
-        title: "Ошибка",
-        description: "Ошибка подключения к чату",
+        title: "Ошибка чата",
+        description: `Не удалось подключиться к чату: ${error?.message || "Неизвестная ошибка"}`,
+        variant: "destructive",
+      });
+    });
+
+    newSocket.on("connect_error", (error: Error | null) => {
+      console.error("[ChatPage] Socket connect_error:", {
+        error: error || "No error data",
+        message: error?.message || "Unknown error",
+        cookies: document.cookie,
+      });
+      toast({
+        title: "Ошибка соединения",
+        description: `Не удалось подключиться к чату: ${error?.message || "Проверьте соединение"}`,
         variant: "destructive",
       });
     });
 
     return () => {
+      clearTimeout(authCheckTimeout);
       newSocket.disconnect();
+      console.log("[ChatPage] Socket disconnected");
+      controller.abort();
     };
-  }, [user, toast, router]);
+  }, [user, isLoading, toast, router]);
 
-  // Загрузка сообщений
   useEffect(() => {
     if (!activeChat || !user) return;
+    const controller = new AbortController();
 
     const fetchMessages = async () => {
       try {
@@ -199,15 +299,25 @@ export default function ChatPage() {
         const response = await fetch(`http://localhost:5000/api/messages?friendId=${activeChat}`, {
           method: "GET",
           credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          signal: controller.signal,
         });
 
         if (!response.ok) {
           const text = await response.text();
-          console.error("[ChatPage] Messages fetch failed:", response.status, text);
+          console.error("[ChatPage] Messages fetch failed:", {
+            status: response.status,
+            statusText: response.statusText,
+            responseText: text.slice(0, 200),
+            cookies: document.cookie,
+          });
           if (response.status === 401 || response.status === 403) {
             toast({
               title: "Ошибка авторизации",
-              description: "Пожалуйста, войдите снова",
+              description: "Сессия истекла, войдите снова",
               variant: "destructive",
             });
             router.push("/login");
@@ -216,32 +326,40 @@ export default function ChatPage() {
           throw new Error(`Failed to fetch messages: ${response.status} ${text.slice(0, 100)}`);
         }
 
-        const data = await response.json();
+        const data: Array<{ id: number; senderId: number; content: string; createdAt: string }> =
+          await response.json();
         setMessages((prev) => ({
           ...prev,
-          [activeChat]: data.map((msg: any) => ({
+          [activeChat]: data.map((msg) => ({
             id: msg.id,
             sender: msg.senderId.toString() === user.id.toString() ? "me" : activeChat,
             text: msg.content,
             time: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            status: "read",
+            status: "read" as const,
           })),
         }));
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      } catch (error) {
-        console.error("[ChatPage] Error fetching messages:", error);
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("[ChatPage] Error fetching messages:", {
+          message: error instanceof Error ? error.message : "Unknown error",
+          name: error instanceof Error ? error.name : "Unknown",
+          stack: error instanceof Error ? error.stack : "No stack",
+        });
         toast({
           title: "Ошибка",
-          description: "Не удалось загрузить сообщения",
+          description: `Не удалось загрузить сообщения: ${
+            error instanceof Error ? error.message : "Неизвестная ошибка"
+          }`,
           variant: "destructive",
         });
       }
     };
 
     fetchMessages();
+    return () => controller.abort();
   }, [activeChat, user, toast, router]);
 
-  // Отправка сообщения
   const handleSendMessage = async () => {
     if (!message.trim() || !activeChat || !user) {
       toast({
@@ -253,20 +371,29 @@ export default function ChatPage() {
     }
 
     try {
+      console.log("[ChatPage] Sending message:", { friendId: activeChat, content: message });
       const response = await fetch("http://localhost:5000/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
         credentials: "include",
         body: JSON.stringify({ friendId: parseInt(activeChat), content: message }),
       });
 
       if (!response.ok) {
         const text = await response.text();
-        console.error("[ChatPage] Message send failed:", response.status, text);
+        console.error("[ChatPage] Message send failed:", {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: text.slice(0, 200),
+          cookies: document.cookie,
+        });
         if (response.status === 401 || response.status === 403) {
           toast({
             title: "Ошибка авторизации",
-            description: "Пожалуйста, войдите снова",
+            description: "Сессия истекла, войдите снова",
             variant: "destructive",
           });
           router.push("/login");
@@ -275,7 +402,7 @@ export default function ChatPage() {
         throw new Error(`Failed to send message: ${response.status} ${text.slice(0, 100)}`);
       }
 
-      const sentMessage = await response.json();
+      const sentMessage: { id: number; content: string; createdAt: string } = await response.json();
       setMessages((prev) => ({
         ...prev,
         [activeChat]: [
@@ -285,21 +412,31 @@ export default function ChatPage() {
             sender: "me",
             text: sentMessage.content,
             time: new Date(sentMessage.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            status: "sent",
+            status: "sent" as const,
           },
         ],
       }));
       setMessage("");
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    } catch (error) {
-      console.error("[ChatPage] Error sending message:", error);
+    } catch (error: unknown) {
+      console.error("[ChatPage] Error sending message:", {
+        message: error instanceof Error ? error.message : "Unknown error",
+        name: error instanceof Error ? error.name : "Unknown",
+        stack: error instanceof Error ? error.stack : "No stack",
+      });
       toast({
         title: "Ошибка",
-        description: "Не удалось отправить сообщение",
+        description: `Не удалось отправить сообщение: ${
+          error instanceof Error ? error.message : "Неизвестная ошибка"
+        }`,
         variant: "destructive",
       });
     }
   };
+
+  if (isLoading) {
+    return <div className="container px-4 py-8">Загрузка авторизации...</div>;
+  }
 
   if (!user) {
     return <div className="container px-4 py-8">Необходимо войти в систему</div>;
@@ -312,7 +449,6 @@ export default function ChatPage() {
   return (
     <ProtectedRoute>
       <div className="flex h-screen flex-col md:flex-row">
-        {/* Contacts Sidebar */}
         <div
           className={cn(
             "w-full md:w-1/3 lg:w-1/4 bg-gray-100 p-4 overflow-y-auto",
@@ -348,7 +484,6 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* Chat Area */}
         <div className="flex-1 flex flex-col bg-white">
           {activeChat ? (
             <>

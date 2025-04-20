@@ -1,0 +1,114 @@
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+h1 {
+    font-size: 24px;
+    margin-bottom: 20px;
+}
+
+.filters {
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.filters h2 {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.filters div {
+    margin-bottom: 10px;
+}
+
+.filters label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.filters input[type="text"],
+.filters input[type="number"],
+.filters select {
+    width: 100%;
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.filters input[type="checkbox"] {
+    margin-right: 5px;
+}
+
+.filters button {
+    padding: 8px 16px;
+    margin-right: 10px;
+    border: none;
+    background-color: #007bff;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.filters button:hover {
+    background-color: #0056b3;
+}
+
+.properties {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.property-card {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.image-container {
+    position: relative;
+    width: 100%;
+    height: 200px;
+}
+
+.image-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.favorite-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+}
+
+.property-info {
+    padding: 15px;
+}
+
+.property-info h3 {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.property-info p {
+    margin-bottom: 5px;
+}
+
+.property-info a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.property-info a:hover {
+    text-decoration: underline;
+}
