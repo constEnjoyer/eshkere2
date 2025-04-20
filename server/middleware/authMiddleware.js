@@ -3,7 +3,7 @@ require('dotenv').config();
 
 module.exports = async(req, res, next) => {
     try {
-        console.log('[authMiddleware] Checking token:', { cookie: req.cookies.jwt, headers: req.headers });
+        console.log('[authMiddleware] Checking token:', { cookie: req.cookies.jwt, headers: req.headers.cookie });
         const token = req.cookies.jwt;
 
         if (!token) {
@@ -17,7 +17,7 @@ module.exports = async(req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.SECRET_KEY);
-        console.log('[authMiddleware] Token verified:', decoded);
+        console.log('[authMiddleware] Token verified:', { id: decoded.id, type: typeof decoded.id });
 
         req.user = decoded;
         next();

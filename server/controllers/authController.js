@@ -91,24 +91,17 @@ class AuthController {
             const token = generateAccessToken(user.id, roles, rememberMe);
 
             res.cookie('jwt', token, {
-                httpOnly: true,
-                secure: false, // Как в gg
-                sameSite: 'lax', // Как в gg
+                httpOnly: false, // Временно, чтобы cookie было видно в document.cookie
+                secure: false,
+                sameSite: 'lax',
                 maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
                 path: '/',
             });
 
             console.log('[POST /api/auth/login] Cookie set:', {
-                token,
+                tokenLength: token.length,
                 userId: user.id,
                 headers: res.getHeaders(),
-                cookieOptions: {
-                    httpOnly: true,
-                    secure: false,
-                    sameSite: 'lax',
-                    maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
-                    path: '/'
-                }
             });
             return res.json({ message: 'Вход выполнен успешно', userId: user.id });
         } catch (error) {

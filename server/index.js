@@ -27,7 +27,7 @@ app.use(cors({
 }));
 app.options('*', cors());
 app.use((req, res, next) => {
-    console.log(`[Server] Request: ${req.method} ${req.url}, Headers: ${JSON.stringify(req.headers)}, Cookies: ${req.headers.cookie || 'none'}`);
+    console.log(`[Server] Request: ${req.method} ${req.url}, Cookies: ${req.headers.cookie || 'none'}`);
     const originalSend = res.send.bind(res);
     res.send = function(body) {
         console.log(`[Server] Response: ${req.method} ${req.url}, Status: ${res.statusCode}, Headers: ${JSON.stringify(res.getHeaders())}`);

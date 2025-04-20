@@ -54,7 +54,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: response.status,
         ok: response.ok,
         headers: Object.fromEntries(response.headers.entries()),
-        requestCookies: document.cookie,
       });
 
       if (!response.ok) {
@@ -100,9 +99,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("[AuthProvider] Login response:", {
         status: response.status,
         ok: response.ok,
-        headers: response.headers ? Object.fromEntries(response.headers.entries()) : {},
+        headers: Object.fromEntries(response.headers.entries()),
+        setCookie: response.headers.get('set-cookie'),
         cookies: document.cookie,
-        setCookie: response.headers ? response.headers.get('set-cookie') : null,
       });
 
       if (!response.ok) {
@@ -115,7 +114,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       toast({ title: "Успех", description: "Вы успешно вошли в систему" });
       setJustLoggedIn(true);
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Задержка из gg
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await checkAuth();
       return { success: true, message: "Login successful" };
     } catch (error) {
@@ -147,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log("[AuthProvider] Register response:", {
         status: response.status,
         ok: response.ok,
-        headers: response.headers ? Object.fromEntries(response.headers.entries()) : {},
+        headers: Object.fromEntries(response.headers.entries()),
       });
 
       if (!response.ok) {
